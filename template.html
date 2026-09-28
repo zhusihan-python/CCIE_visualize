@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>封装与解封装 · CCNA 分层动画</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8;
+    --accent: #3b82f6; --green: #22c55e; --red: #ef4444;
+    --hot: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; align-items: center; min-height: 100vh;
+  }
+  header {
+    width: 100%; max-width: 1320px; padding: 14px 18px 10px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .controls { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .controls button, .controls select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; font-size: 14px; cursor: pointer;
+  }
+  .controls button:hover:not(:disabled) { border-color: var(--accent); }
+  .controls button:disabled { opacity: .35; cursor: default; }
+  .controls button.play { background: var(--accent); border-color: var(--accent); min-width: 56px; }
+  #counter { color: var(--muted); font-size: 13px; min-width: 96px; text-align: right; }
+  main { width: 100%; max-width: 1320px; padding: 0 18px; }
+  .stage-row { display: flex; gap: 14px; align-items: stretch; }
+  .stage-left { flex: 1 1 auto; min-width: 0; }
+  #stage {
+    width: 100%; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; display: block;
+  }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 4px;
+    color: var(--muted); font-size: 12.5px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+  .sw.eth { background: #38bdf8; }
+  .sw.ip { background: #fbbf24; }
+  .sw.tcp { background: #2dd4bf; }
+  .sw.data { background: #94a3b8; }
+  .sw.fcs { background: #a78bfa; }
+  .sw.bits { background: #f59e0b; border-radius: 50%; }
+  /* ---- 分层对照面板 ---- */
+  #stacks {
+    flex: 0 0 320px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 10px 12px 12px; display: flex;
+    flex-direction: column; gap: 8px;
+  }
+  #stacks h3 { margin: 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .stackgrid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: repeat(7, minmax(38px, auto)); gap: 4px; flex: 1;
+  }
+  .stackgrid .sh {
+    font-size: 11.5px; color: var(--muted); text-align: center;
+    align-self: end; padding-bottom: 2px;
+  }
+  .stackgrid .cell {
+    border: 1px solid var(--border); border-radius: 7px;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    font-size: 12px; padding: 2px 4px; text-align: center; cursor: pointer;
+    transition: background .15s, border-color .15s; user-select: none;
+  }
+  .stackgrid .cell b { color: var(--muted); font-size: 11px; }
+  .stackgrid .cell:hover { border-color: var(--accent); }
+  .stackgrid .cell.hot {
+    background: rgba(245,158,11,.18); border-color: var(--hot);
+    color: #fde68a; font-weight: 600;
+  }
+  .stackgrid .cell.hot b { color: #fde68a; }
+  #stack-note {
+    border-left: 3px solid var(--accent); padding: 4px 0 4px 10px;
+    color: var(--muted); font-size: 12px; line-height: 1.6; min-height: 40px;
+  }
+  footer {
+    width: 100%; max-width: 1320px; padding: 6px 18px 24px;
+    display: grid; grid-template-columns: 3fr 2fr; gap: 14px;
+  }
+  @media (max-width: 900px) {
+    .stage-row { flex-direction: column; }
+    #stacks { flex-basis: auto; }
+    footer { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px; font-size: 14px; line-height: 1.65;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  #events { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px;
+            max-height: 150px; overflow-y: auto; }
+  #events li { margin: 2px 0; }
+  .controls button.concept { border-color: #6366f1; color: #c7d2fe; }
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(2, 6, 23, .72);
+    display: none; z-index: 50; align-items: center; justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    width: min(92vw, 720px); max-height: 84vh; overflow-y: auto;
+    padding: 18px 26px 22px;
+  }
+  .modal h2 { margin: 0 0 6px; font-size: 17px; }
+  .modal h3 { margin: 14px 0 6px; font-size: 13px; color: #818cf8; }
+  .modal p { font-size: 13.5px; line-height: 1.75; margin: 4px 0; }
+  .modal ul { padding-left: 20px; margin: 4px 0; }
+  .modal li { font-size: 13.5px; line-height: 1.7; margin: 3px 0; }
+  .modal dt { font-weight: 600; font-size: 13.5px; margin-top: 7px; }
+  .modal dd { margin: 1px 0 0 18px; color: var(--muted); font-size: 13px;
+              line-height: 1.6; }
+  .modal .close {
+    float: right; background: none; border: none; color: var(--muted);
+    font-size: 19px; cursor: pointer; padding: 0 4px;
+  }
+  .modal .scenario {
+    color: #c7d2fe; font-size: 13px; line-height: 1.6;
+    border-left: 3px solid #6366f1; padding-left: 10px; margin: 6px 0 2px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 id="title">封装与解封装 · 分层动画</h1>
+    <div class="sub" id="subtitle"></div>
+  </div>
+  <div class="controls">
+    <button id="btn-first" title="回到第一步 (Home)">⏮</button>
+    <button id="btn-prev" title="上一步 (←)">◀</button>
+    <button id="btn-play" class="play" title="播放/暂停 (空格)">▶</button>
+    <button id="btn-next" title="下一步 (→)">▶|</button>
+    <button id="btn-last" title="最后一步 (End)">⏭</button>
+    <select id="speed" title="播放速度">
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+    </select>
+    <button id="btn-concept" class="concept" title="分层原理讲解">📖 原理</button>
+    <span id="counter"></span>
+  </div>
+</header>
+<main>
+  <div class="stage-row">
+    <div class="stage-left">
+      <canvas id="stage"></canvas>
+      <div class="legend">
+        <span><i class="sw eth"></i>以太网头（MAC）</span>
+        <span><i class="sw ip"></i>IP 头（地址）</span>
+        <span><i class="sw tcp"></i>TCP 头（端口）</span>
+        <span><i class="sw data"></i>数据</span>
+        <span><i class="sw fcs"></i>FCS 尾</span>
+        <span><i class="sw bits"></i>比特流</span>
+      </div>
+    </div>
+    <aside id="stacks">
+      <h3>分层对照 · 当前步高亮（点击看作用）</h3>
+      <div class="stackgrid" id="stackgrid">
+        <div class="sh">OSI 七层</div>
+        <div class="sh">TCP/IP 对等 5 层</div>
+        <div class="sh">TCP/IP 4 层</div>
+
+        <div class="cell" style="grid-column:1; grid-row:1" data-layers="7"
+             data-note="第 7 层 · 应用层：为应用程序提供网络服务（浏览器、邮件、FTP、DNS）。OSI 5–7 层在 TCP/IP 中合并为应用层"><b>7</b>应用层</div>
+        <div class="cell" style="grid-column:1; grid-row:2" data-layers="6"
+             data-note="第 6 层 · 表示层：编码、压缩、加密等数据格式转换，确保对端应用层能识别"><b>6</b>表示层</div>
+        <div class="cell" style="grid-column:1; grid-row:3" data-layers="5"
+             data-note="第 5 层 · 会话层：建立、管理、终止表示层实体之间的通信会话"><b>5</b>会话层</div>
+        <div class="cell" style="grid-column:1; grid-row:4" data-layers="4"
+             data-note="第 4 层 · 传输层：端到端传输——TCP/UDP 与端口号；建立维护取消一次端到端传输"><b>4</b>传输层</div>
+        <div class="cell" style="grid-column:1; grid-row:5" data-layers="3"
+             data-note="第 3 层 · 网络层：逻辑地址（IP）与路由，把数据从源网络送到目的网络"><b>3</b>网络层</div>
+        <div class="cell" style="grid-column:1; grid-row:6" data-layers="2"
+             data-note="第 2 层 · 数据链路层：比特组合成帧、MAC 地址、差错检测（FCS），点到点直接通信"><b>2</b>数据链路层</div>
+        <div class="cell" style="grid-column:1; grid-row:7" data-layers="1"
+             data-note="第 1 层 · 物理层：比特流传输——电平、速率、电缆针脚等物理特性"><b>1</b>物理层</div>
+
+        <div class="cell" style="grid-column:2; grid-row:1/4" data-layers="5-7"
+             data-note="TCP/IP 应用层 = OSI 5–7 层合并：HTTP、DNS、FTP 等应用协议">应用层</div>
+        <div class="cell" style="grid-column:2; grid-row:4" data-layers="4"
+             data-note="TCP/IP 传输层 = OSI 4 层：TCP / UDP，端到端端口区分程序">传输层</div>
+        <div class="cell" style="grid-column:2; grid-row:5" data-layers="3"
+             data-note="TCP/IP 网络层 = OSI 3 层：IP 地址与路由（IP、ICMP、OSPF）">网络层</div>
+        <div class="cell" style="grid-column:2; grid-row:6" data-layers="2"
+             data-note="对等 5 层把「网络接口层」拆开：数据链路层——成帧、MAC、FCS">数据链路层</div>
+        <div class="cell" style="grid-column:2; grid-row:7" data-layers="1"
+             data-note="对等 5 层把「网络接口层」拆开：物理层——比特流与电气特性">物理层</div>
+
+        <div class="cell" style="grid-column:3; grid-row:1/4" data-layers="5-7"
+             data-note="互联网实际运行的模型：应用层对应 OSI 5–7 层">应用层</div>
+        <div class="cell" style="grid-column:3; grid-row:4" data-layers="4"
+             data-note="TCP / UDP 所在层">传输层</div>
+        <div class="cell" style="grid-column:3; grid-row:5" data-layers="3"
+             data-note="IPv4 / IPv6 与路由所在层">网络层</div>
+        <div class="cell" style="grid-column:3; grid-row:6/8" data-layers="1-2"
+             data-note="以太网、MAC：标准 4 层模型把物理与链路合为一层；对等 5 层再拆开便于学习排错">网络接口层</div>
+      </div>
+      <div id="stack-note">点击任意层查看它的作用；播放时当前步骤所在层会自动高亮。</div>
+    </aside>
+  </div>
+</main>
+<footer>
+  <div class="card"><h3>当前步骤</h3><div id="desc"></div></div>
+  <div class="card"><h3>本步要点</h3><ol id="events"></ol></div>
+</footer>
+
+<div id="concept-modal" class="modal-backdrop">
+  <div class="modal">
+    <button class="close" id="concept-close" title="关闭 (Esc)">✕</button>
+    <div id="concept-body"></div>
+  </div>
+</div>
+
+<script>
+window.PLAYER_DATA = __DATA__;
+</script>
+<script>
+/*__PLAYER__*/
+</script>
+</body>
+</html>
