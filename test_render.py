@@ -103,6 +103,18 @@ class CliTests(unittest.TestCase):
                 self.assertIn('"topic": "ios"', html)
                 self.assertIn("终端回放", html)
 
+    def test_cli_arp_resolve(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "arp.html"
+            generate.main(["-p", "arp", "-t", "resolve", "-o", str(out)])
+            html = out.read_text(encoding="utf-8")
+            self.assertNotIn("__DATA__", html)
+            self.assertIn("ARP 地址解析 · 首次通信全流程", html)
+            self.assertIn('"topic": "arp"', html)
+            self.assertIn("19 步", html)
+            self.assertIn("共享总线广播域", html)
+            self.assertIn('"id": "PC3"', html)
+
     def test_cli_default_output_names(self):
         # 默认输出名按 TOPICS 映射（encap→encap.html，troubleshoot→cable）
         with tempfile.TemporaryDirectory() as tmp:

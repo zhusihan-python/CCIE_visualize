@@ -15,6 +15,7 @@ python3 generate.py -p troubleshoot -t service     # 排错·服务未启动
 python3 generate.py -p ios                         # IOS·模式漫游 -> ios.html
 python3 generate.py -p ios -t save                 # IOS·配置保存
 python3 generate.py -p ios -t passwords            # IOS·双密码关卡
+python3 generate.py -p arp                         # ARP·首次通信全流程 -> arp.html
 python3 generate.py --json doc.json                # 同时导出原始步骤数据
 open encap.html                                    # 双击打开也行，无需服务器
 ```
@@ -68,6 +69,21 @@ open encap.html                                    # 双击打开也行，无需
 可测不变量：输入行提示符后缀始终与上一步的 IOS 模式一致
 （`Password:` / `[yes/no]:` / `[confirm]` 等非模式提示行除外）。
 
+## 内容四：ARP 地址解析（第 04 课 · `-p arp`）
+
+三台 PC 接入同一段**共享总线**（无交换机，对应笔记「广播多点接入 BMA」）。
+`-t resolve`（默认，19 步）：PC1 第一次 ping PC2 的完整前戏与正片——
+
+- **四元素缺一**：源/目的 IP、源 MAC 都有，唯独目的 MAC 不知道，帧封
+  不出去（左下字段面板实时展开当前帧的每个字段）；
+- **广播问、单播答**：ARP 请求以广播帧向两侧扩散（全村听到：PC3 因
+  「目标 IP 不是我」丢弃，PC2 认领）；应答以单播帧只回请求者；
+- **表是缓存**：双方各写入一行 dynamic 表项（右下双表，新行高亮）；
+  第二次 ping 查表命中，全程零广播——对照第一次的广播一目了然。
+
+画布语义：琥珀粒子 = ARP 帧，天蓝粒子 = ICMP 帧；设备下方绿/红胶囊 =
+网卡接收判定（✓ 收下 / ✕ 丢弃——MAC 过滤就是以太网寻址）。
+
 ## 代码结构
 
 | 文件 | 职责 |
@@ -75,6 +91,7 @@ open encap.html                                    # 双击打开也行，无需
 | `encap.py` | 封装/解封装故事生成器（纯逻辑）：设备链、两场景、步骤 + 中文讲解 |
 | `troubleshoot.py` | 分层排错故事生成器（纯逻辑）：三故障场景、检查清单快照、ping 事件 |
 | `ios.py` | IOS 基础操作故事生成器（纯逻辑）：三场景终端回放、模式状态机、files/pw 面板快照 |
+| `arp.py` | ARP 地址解析故事生成器（纯逻辑）：共享总线拓扑、广播/单播事件、帧字段与 ARP 表快照 |
 | `concepts.py` | 「📖 原理」卡内容与分场景看点（按 topic 注册） |
 | `generate.py` | CLI 与 `build_document()` 统一入口；`TOPICS` 映射收口场景/标题/输出名；模板占位符替换出单文件 HTML |
 | `template.html` | 页面外壳 + 三列分层对照面板（`__DATA__` / `/*__PLAYER__*/` 双占位符） |
@@ -85,7 +102,11 @@ open encap.html                                    # 双击打开也行，无需
 
 - 同步串行模型：一次只讲一条请求的方向，不建模 TCP 握手/重传/排序细节。
 - 地址与端口为教学示意值（192.168.1.10 等），非真实抓包。
-- ARP 仅一句话提及（“网关/对端 MAC 怎么获得”），后续课程展开。
+- ARP 已在 `-p arp` 展开首次通信场景；交换机 MAC 学习/泛洪是第 05 课
+  内容，故 arp 拓扑采用无交换机的共享总线（BMA）示意，跨网段场景的
+  「网关 MAC 怎么来」仍留待后续课程。
+- arp 场景中 PC2 从请求「发送方」字段学习 PC1 映射为真实 ARP 行为；
+  PC3 不学习的细节各厂商实现不一，故事中不做表现。
 - 防火墙（L3–L7）、AC/AP 等设备只在原理卡中以「设备看层」词条出现，
   不进入故事拓扑。
 - 排错场景的 ping 动画与检查项为教学示意：真实环境中「错网段」的表现是
@@ -99,6 +120,6 @@ open encap.html                                    # 双击打开也行，无需
 ## 测试
 
 ```bash
-python3 -m unittest test_encap test_concepts test_render test_troubleshoot test_ios
+python3 -m unittest test_encap test_concepts test_render test_troubleshoot test_ios test_arp
 ```
 

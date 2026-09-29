@@ -93,5 +93,31 @@ class IosConceptTests(unittest.TestCase):
             concepts.for_topic("ios", "modes")["scenario"])
 
 
+class ArpConceptTests(unittest.TestCase):
+    def test_schema_keys(self):
+        card = concepts.for_topic("arp", "resolve")
+        for key in ("title", "problem", "idea", "rules", "glossary", "scenario"):
+            self.assertIn(key, card)
+            self.assertTrue(card[key])
+        self.assertGreaterEqual(len(card["rules"]), 3)
+        self.assertGreaterEqual(len(card["glossary"]), 3)
+
+    def test_scenario_note_prefixed(self):
+        self.assertIn("场景看点",
+                      concepts.for_topic("arp", "resolve")["scenario"])
+
+    def test_unknown_scenario_falls_back_to_resolve(self):
+        card = concepts.for_topic("arp", "bogus")
+        self.assertEqual(
+            card["scenario"],
+            concepts.for_topic("arp", "resolve")["scenario"])
+
+    def test_glossary_covers_mac_types(self):
+        text = " ".join(term for term, _ in
+                        concepts.for_topic("arp", "resolve")["glossary"])
+        for kw in ("广播 MAC", "组播 MAC", "OUI", "dynamic", "免费 ARP"):
+            self.assertIn(kw, text)
+
+
 if __name__ == "__main__":
     unittest.main()

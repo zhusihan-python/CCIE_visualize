@@ -45,7 +45,7 @@
     S.packets = (st.events || []).map(e => ({
       from: S.pos[e.from], to: S.pos[e.to],
       delay: e.delay || 0, kind: e.kind || 'bits',
-      drop: e.drop, label: e.label,
+      drop: e.drop, label: e.label, hue: e.hue,
     }));
     if (S.DATA.topic === 'ios') {
       renderTerm(st);
@@ -340,7 +340,169 @@
     });
   }
 
-  // ---- 飞行动画（encap 比特流 / troubleshoot ping 两态） -----------------
+  // ---- ARP 共享总线（arp 主题专属；设备行不动，总线画在上方） ------------
+
+  const FRAME_HUE = {
+    arp:  { fill: '#f59e0b', edge: '#78350f', text: '#fde68a' },
+    icmp: { fill: '#38bdf8', edge: '#0c4a6e', text: '#e0f2fe' },
+  };
+
+  function drawFrameDot(ctx, x, label, hue) {
+    const c = FRAME_HUE[hue] || FRAME_HUE.arp;
+    ctx.beginPath(); ctx.arc(x, S.busY, 9, 0, Math.PI * 2);
+    ctx.fillStyle = c.fill; ctx.fill();
+    ctx.strokeStyle = c.edge; ctx.lineWidth = 1.5; ctx.stroke();
+    if (label) {
+      ctx.fillStyle = c.text; ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, x, S.busY - 14);
+    }
+  }
+
+  function drawBus(ctx, st) {
+    const taps = S.devices.map(d => S.pos[d.id]);
+    const left = Math.min(...taps.map(p => p.x)) - 60;
+    const right = Math.max(...taps.map(p => p.x)) + 60;
+    ctx.strokeStyle = '#475569'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(left, S.busY); ctx.lineTo(right, S.busY);
+    ctx.stroke();
+    // 活跃段：当前步事件涉及引线的包络区间（同链路高亮的总线版）
+    const involved = (st.events || []).flatMap(e => [e.from, e.to]);
+    if (involved.length) {
+      const xs = involved.map(id => S.pos[id].x);
+      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(Math.min(...xs), S.busY);
+      ctx.lineTo(Math.max(...xs), S.busY);
+      ctx.stroke();
+    }
+    for (const p of taps) {
+      ctx.strokeStyle = '#475569'; ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(p.x, S.busY + 2);
+      ctx.lineTo(p.x, DEV_Y - BOX_H / 2 - 2);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, S.busY, 3.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#94a3b8'; ctx.fill();
+    }
+    ctx.textAlign = 'center'; ctx.font = '11.5px sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('共享总线 · 同一广播域（人人可听）', W / 2, S.busY - 18);
+  }
+
+  // 接收判定胶囊：画在设备框下信息（IP/MAC）的下方独占地带，arp 不用
+  // alert_devices，与框顶 ⚠ 徽标天然错开
+  function drawFlash(ctx, st) {
+    for (const dev of S.devices) {
+      const f = (st.flash || {})[dev.id];
+      if (!f) continue;
+      const p = S.pos[dev.id];
+      const text = (f.ok ? '✓ ' : '✕ ') + f.text;
+      ctx.font = 'bold 10.5px sans-serif';
+      const w = ctx.measureText(text).width + 18;
+      const y = DEV_Y + BOX_H / 2 + 42;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(p.x - w / 2, y, w, 20, 10);
+      else ctx.rect(p.x - w / 2, y, w, 20);
+      ctx.fillStyle = f.ok ? 'rgba(34,197,94,.16)' : 'rgba(239,68,68,.16)';
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = f.ok ? '#22c55e' : '#ef4444';
+      ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = f.ok ? '#86efac' : '#fca5a5';
+      ctx.fillText(text, p.x, y + 14);
+    }
+  }
+
+  function drawArpTables(ctx, st) {
+    const tables = st.arp_tables || {};
+    const defs = [['PC1', '发送方'], ['PC2', '应答方']];
+    const x0 = 604, w = 332;
+    defs.forEach(([id, role], t) => {
+      const y0 = 340 + t * 148;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x0, y0, w, 132, 10);
+      else ctx.rect(x0, y0, w, 132);
+      ctx.fillStyle = '#1e293b'; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = '#334155'; ctx.stroke();
+      ctx.textAlign = 'left'; ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillText(id + ' 的 ARP 缓存表（' + role + '）', x0 + 12, y0 + 20);
+      ctx.font = '10.5px sans-serif'; ctx.fillStyle = '#64748b';
+      ctx.fillText('IP 地址', x0 + 16, y0 + 42);
+      ctx.fillText('MAC 地址', x0 + 130, y0 + 42);
+      ctx.fillText('类型', x0 + 252, y0 + 42);
+      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x0 + 12, y0 + 50); ctx.lineTo(x0 + w - 12, y0 + 50);
+      ctx.stroke();
+      const rows = tables[id] || [];
+      if (!rows.length) {
+        ctx.fillStyle = '#475569'; ctx.font = '11px sans-serif';
+        ctx.fillText('（空——还没学到任何映射）', x0 + 16, y0 + 72);
+        return;
+      }
+      rows.forEach((r, i) => {
+        const y = y0 + 68 + i * 26;
+        if (r.new) {
+          ctx.beginPath();
+          if (ctx.roundRect) ctx.roundRect(x0 + 10, y - 14, w - 20, 22, 6);
+          else ctx.rect(x0 + 10, y - 14, w - 20, 22);
+          ctx.fillStyle = 'rgba(245,158,11,.14)'; ctx.fill();
+          ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        ctx.font = (r.new ? 'bold ' : '') +
+                   '11px "SF Mono", Menlo, monospace';
+        ctx.fillStyle = r.new ? '#fde68a' : '#86efac';
+        ctx.fillText(r.ip, x0 + 16, y);
+        ctx.fillText(r.mac, x0 + 130, y);
+        ctx.fillStyle = '#94a3b8'; ctx.font = '10.5px sans-serif';
+        ctx.fillText(r.type, x0 + 252, y);
+      });
+    });
+  }
+
+  function drawArpBottom(ctx, st) {
+    ctx.textAlign = 'left'; ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('当前帧 · 字段展开', 24, 318);
+    ctx.textAlign = 'right'; ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText(st.pdu_name, W - 24, 322);
+
+    const rows = st.fields || [];
+    if (!rows.length) {
+      ctx.textAlign = 'center'; ctx.font = '13px sans-serif';
+      ctx.fillStyle = '#475569';
+      ctx.fillText(st.kind === 'initial' ? '（帧尚未产生——点 ▶ 或 → 开始）'
+                                         : '（通信完成——可回看任意一步）',
+                   302, 430);
+    } else {
+      const x0 = 24, w = 556, y0 = 340, rh = 26;
+      rows.forEach((f, i) => {
+        const y = y0 + i * rh;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x0, y, w, rh - 4, 6);
+        else ctx.rect(x0, y, w, rh - 4);
+        ctx.fillStyle = f.hot ? 'rgba(245,158,11,.14)' : '#263449';
+        ctx.fill();
+        ctx.lineWidth = f.hot ? 1.8 : 1.2;
+        ctx.strokeStyle = f.hot ? '#facc15' : '#334155';
+        ctx.stroke();
+        ctx.textAlign = 'left'; ctx.font = '11.5px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(f.k, x0 + 12, y + 16);
+        ctx.textAlign = 'right'; ctx.font = 'bold 11.5px sans-serif';
+        ctx.fillStyle = { bcast: '#f87171', uni: '#4ade80',
+                          unk: '#fbbf24' }[f.tone] || '#e2e8f0';
+        ctx.fillText(f.v, x0 + w - 12, y + 16);
+      });
+    }
+    drawArpTables(ctx, st);
+  }
+
+  // ---- 飞行动画（encap 比特流 / troubleshoot ping / arp 总线帧） ----------
 
   function drawPingDot(ctx, q, label) {
     ctx.beginPath(); ctx.arc(q.x, DEV_Y, 9, 0, Math.PI * 2);
@@ -356,6 +518,15 @@
     for (const pk of S.packets) {
       const base = Math.min(1.35, Math.max(0,
         (now - S.enterTime) / (PACKET_MS / S.speed) - pk.delay));
+      if (pk.kind === 'frame') {
+        // arp 总线帧粒子：沿总线从源引线滑到目的引线。
+        // spread 口径与 ping 一致（delay + 1）——advance() 自动推进靠它
+        spread = Math.max(spread, pk.delay + 1);
+        if (base <= 0 || base > 1) continue;
+        const q = lerp(pk.from, pk.to, base);
+        drawFrameDot(ctx, q.x, pk.label, pk.hue);
+        continue;
+      }
       if (pk.kind === 'ping') {
         spread = Math.max(spread, pk.delay + (pk.drop !== undefined ? pk.drop : 1));
         if (base <= 0) continue;
@@ -401,9 +572,12 @@
     const ctx = S.ctx;
     ctx.clearRect(0, 0, W, H);
     const st = S.steps[S.cur];
-    drawLinks(ctx, st);
+    if (S.arp) { drawBus(ctx, st); } else { drawLinks(ctx, st); }
     drawDevices(ctx, st);
-    if (S.DATA.topic === 'troubleshoot') {
+    if (S.arp) {
+      drawArpBottom(ctx, st);
+      drawFlash(ctx, st);
+    } else if (S.DATA.topic === 'troubleshoot') {
       drawChecklist(ctx, st);
     } else {
       drawPdu(ctx, st);
@@ -584,6 +758,11 @@
         S.pos[d.id] = { x: 90 + i * (W - 180) / (N - 1), y: DEV_Y };
       });
     }
+
+    // arp 主题：共享总线布局。设备行/DEV_Y 不动，总线画在上方，
+    // 帧粒子（kind=frame）沿 busY 飞行
+    S.arp = data.topic === 'arp';
+    S.busY = S.arp ? 64 : 0;
 
     // 按 topic 切换画布/终端布局与面板：PDU 图例仅 encap、分层面板仅 ios 隐藏
     const isIos = data.topic === 'ios';

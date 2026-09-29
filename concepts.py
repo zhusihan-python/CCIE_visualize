@@ -128,7 +128,52 @@ IOS = {
     ],
 }
 
-CARDS = {"encap": ENCAPE, "troubleshoot": TROUBLESHOOT, "ios": IOS}
+ARP = {
+    "title": "ARP 地址解析 · 已知 IP 求 MAC 核心思路",
+    "problem": (
+        "封装一个以太网帧需要四个元素：源 IP、目的 IP、源 MAC、目的 MAC。"
+        "IP 可以按网络规划推算，但「同一网段里那个 IP 对应哪块网卡」没人"
+        "告诉发送方——缺了目的 MAC，二层帧头就写不出来，通信根本发不出"
+        "第一步。"
+    ),
+    "idea": (
+        "拿 IP 去问：ARP 请求用广播帧发给局域网所有设备（目的 MAC 全 F，"
+        "「谁是 192.168.1.2？」）；只有目标设备用单播帧应答「我是，我的 "
+        "MAC 是……」。请求方把结果写进 ARP 缓存表，之后发包先查表，命中"
+        "就直接封帧、免广播。ARP 是 IPv4 通信的前置条件——没有它，帧封"
+        "不出去。"
+    ),
+    "rules": [
+        "请求 = 广播帧（目的 MAC = FF-FF-FF-FF-FF-FF，写成 FFFF.FFFF.FFFF "
+        "等价）；应答 = 单播帧，只回给请求者",
+        "发包前先查 ARP 缓存：命中 → 直接封装发送（零广播）；未命中 → "
+        "才广播 ARP 请求",
+        "ARP 表项：dynamic 动态学习、有老化时间（几分钟到 4 小时），失效"
+        "后要重新广播；static 手工配置、不老化",
+        "应答方也会从请求的「发送方 IP/MAC」学到请求者的映射——一次广播，"
+        "两边受益",
+        "三类 MAC：单播（第 8 bit=0）可做源也可做目的；组播（01-00-5E-…）"
+        "与广播（全 F）只能做目的——「只有单播能双向」",
+        "免费 ARP（下一篇展开）：源 IP = 目标 IP = 自己的广播请求，用来"
+        "探测 IP 冲突、或网卡更换/IP 漂移后通知邻居更新",
+    ],
+    "glossary": [
+        ["ARP", "地址解析协议——局域网内把已知 IP 解析成未知 MAC"],
+        ["广播 MAC", "FF-FF-FF-FF-FF-FF（48 bit 全 1）：发给本广播域所有设备"],
+        ["组播 MAC", "01-00-5E-xx-xx-xx（第 8 bit=1）：发给一组设备，仅作目的"],
+        ["OUI / EUI", "MAC 前 24 bit 厂商编号 / 后 24 bit 网卡序号——"
+         "出厂烧录、全球唯一"],
+        ["dynamic / static", "ARP 表动态学习（会老化）/ 手工配置（不老化）"],
+        ["老化时间 aging-time", "动态表项的寿命；过期删除，需重新 ARP"],
+        ["MAC vs IP", "MAC=网卡的身份证（你是谁，出厂定型）；IP=网络世界的"
+         "住址（你在哪，随规划可变）——通信两者缺一不可"],
+        ["免费 ARP", "源 IP=目标 IP=自己的 ARP 请求：检测 IP 冲突、更新邻居 "
+         "ARP 表"],
+    ],
+}
+
+CARDS = {"encap": ENCAPE, "troubleshoot": TROUBLESHOOT, "ios": IOS,
+         "arp": ARP}
 
 SCENARIO_NOTES = {
     "encap": {
@@ -181,10 +226,18 @@ SCENARIO_NOTES = {
             " 只认 secret——输 password 的值会看到 % Bad secrets。"
         ),
     },
+    "arp": {
+        "resolve": (
+            "场景看点：PC1 第一次 ping PC2（三台 PC 共享总线，无交换机）。"
+            "盯三件事：① 广播请求向两侧扩散、PC3 丢弃、PC2 认领；② 右下 "
+            "ARP 表在应答前后各写入一行；③ 第二次 ping 查表命中、全程零"
+            "广播。网卡「收不收」看的永远是 MAC——这就是以太网的寻址。"
+        ),
+    },
 }
 
 _DEFAULT_SCENARIO = {"encap": "cross-net", "troubleshoot": "cable",
-                     "ios": "modes"}
+                     "ios": "modes", "arp": "resolve"}
 
 
 def for_topic(topic: str, scenario: str) -> dict:

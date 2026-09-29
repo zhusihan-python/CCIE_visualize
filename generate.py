@@ -13,6 +13,7 @@ import argparse
 import json
 from pathlib import Path
 
+import arp
 import concepts
 import encap
 import ios
@@ -62,6 +63,14 @@ TOPICS = {
         },
         "build": ios.simulate,
     },
+    "arp": {
+        "scenarios": arp.SCENARIOS,
+        "titles": {
+            "resolve": "ARP 地址解析 · 首次通信全流程",
+        },
+        "default_output": {"resolve": "arp.html"},
+        "build": arp.simulate,
+    },
 }
 
 
@@ -71,6 +80,8 @@ def _subtitle(topic, result):
         return f"{len(result.steps)} 步 · 终端回放"
     if topic == "troubleshoot":
         return f"{len(result.steps)} 步 · 自底向上逐层排查 · 设备链 {chain_ids}"
+    if topic == "arp":
+        return f"{len(result.steps)} 步 · ARP 地址解析 · 共享总线广播域"
     return f"{len(result.steps)} 步 · 设备链 {chain_ids}"
 
 
@@ -159,6 +170,10 @@ def main(argv=None) -> None:
               f"checks_until_hit={result.checks_until_hit}")
     elif args.topic == "ios":
         print(f"  steps={len(result.steps)} mode_changes={result.mode_changes}")
+    elif args.topic == "arp":
+        print(f"  steps={len(result.steps)} "
+              f"broadcasts={len(result.fanout_steps)} "
+              f"table_writes={result.table_writes}")
     else:
         print(f"  steps={len(result.steps)} "
               f"pdu={' → '.join(result.sender_pdu_names)} "
