@@ -19,7 +19,7 @@ SCENARIOS = ("resolve",)
 PC1_IP, PC2_IP, PC3_IP = "192.168.1.1", "192.168.1.2", "192.168.1.3"
 PC1_MAC, PC2_MAC, PC3_MAC = ("0200.0000.0001", "0200.0000.0002",
                              "0200.0000.0003")
-BROADCAST_MAC = "FFFF.FFFF.FFFF"      # 即 FF-FF-FF-FF-FF-FF（48 bit 全 1）
+BROADCAST_MAC = "ffff.ffff.ffff"      # 即 FF-FF-FF-FF-FF-FF（48 bit 全 1）
 UNKNOWN_MAC = "0000.0000.0000"        # 请求里「不知道才问」的目标 MAC
 
 
@@ -243,10 +243,10 @@ def simulate(scenario="resolve"):
               fields=request_fields(),
               tables=empty_tables),
         _step("move", 1, "PC1", PHASES[4],
-              "广播帧登上总线，向左右两侧同时扩散——三台 PC 都会收到（这就"
-              "是「拿着大喇叭、全村都听到」）。物理层视角：总线上跑的是比"
-              "特流，所有网卡都能听到这段信号。",
-              ["广播发送：同一帧同时发往 PC2 与 PC3（两侧扩散）",
+              "广播帧登上总线，两个复制帧同时起飞、一近一远奔向 PC2 与 "
+              "PC3——三台 PC 都会收到（这就是「拿着大喇叭、全村都听到」）。"
+              "物理层视角：总线上跑的是比特流，所有网卡都能听到这段信号。",
+              ["广播发送：同一帧同时发往 PC2 与 PC3（同时起飞、一近一远）",
                "目的 MAC 全 F = 本广播域内人人有份",
                "当前 PDU：帧（Frame）→ 总线比特流"],
               events=[
