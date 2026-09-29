@@ -387,7 +387,8 @@
     }
     ctx.textAlign = 'center'; ctx.font = '11.5px sans-serif';
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText('共享总线 · 同一广播域（人人可听）', W / 2, S.busY - 18);
+    // busY-30：与飞行粒子标签（busY-14）错开，避免中心区短暂交叠
+    ctx.fillText('共享总线 · 同一广播域（人人可听）', W / 2, S.busY - 30);
   }
 
   // 接收判定胶囊：画在设备框下信息（IP/MAC）的下方独占地带，arp 不用
