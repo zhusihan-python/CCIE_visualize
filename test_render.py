@@ -10,6 +10,7 @@ import generate
 REPO = Path(__file__).resolve().parent
 # 播放器必须引用到的外壳 DOM id（template.html 与 player.js 的契约）
 SHELL_IDS = ("title", "subtitle", "stage", "stacks", "stackgrid", "stack-note",
+             "canvas-row", "term", "modebox", "ios-side", "term-col",
              "btn-first", "btn-prev", "btn-play", "btn-next", "btn-last",
              "speed", "btn-concept", "counter", "desc", "events",
              "concept-modal", "concept-body", "concept-close")
@@ -32,8 +33,11 @@ class PackagingTests(unittest.TestCase):
         player = (REPO / "player.js").read_text(encoding="utf-8")
         for dom_id in SHELL_IDS:
             self.assertIn(f'id="{dom_id}"', template)
-            # stacks 面板由 CSS/HTML 承载，player 只用其内部两个 id
-            if dom_id != "stacks":
+            # stacks 面板由 CSS/HTML 承载，player 只用其内部两个 id；
+            # canvas-row/term-col 由 bootPlayer 的显隐分支引用
+            if dom_id in ("stacks", "term-col"):
+                self.assertIn(f'id="{dom_id}"', template)
+            else:
                 self.assertIn(dom_id, player)
 
     def test_render_escapes_closing_script_tag(self):
@@ -85,6 +89,21 @@ class CliTests(unittest.TestCase):
                 self.assertNotIn("__DATA__", html)
                 self.assertIn(title, html)
                 self.assertIn('"topic": "troubleshoot"', html)
+
+    def test_cli_ios_three_scenarios(self):
+        for scenario, title, name in (
+            ("modes", "IOS 模式漫游", "ios.html"),
+            ("save", "IOS 配置保存", "ios-save.html"),
+            ("passwords", "IOS 密码", "ios-passwords.html"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / name
+                generate.main(["-p", "ios", "-t", scenario, "-o", str(out)])
+                html = out.read_text(encoding="utf-8")
+                self.assertNotIn("__DATA__", html)
+                self.assertIn(title, html)
+                self.assertIn('"topic": "ios"', html)
+                self.assertIn("终端回放", html)
 
     def test_cli_default_output_names(self):
         # 默认输出名按 TOPICS 映射（encap→encap.html，troubleshoot→cable）

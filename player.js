@@ -47,6 +47,11 @@
       delay: e.delay || 0, kind: e.kind || 'bits',
       drop: e.drop, label: e.label,
     }));
+    if (S.DATA.topic === 'ios') {
+      renderTerm(st);
+      renderModebox(st);
+      renderIosSide(st);
+    }
     renderPanels();
     updateButtons();
   }
@@ -387,6 +392,12 @@
 
   function draw(now) {
     if (!S.ready) return;
+    if (S.DATA.topic === 'ios') {
+      // ios 主题无画布内容，只保留自动推进时序
+      if (S.playing && now > S.enterTime + STATIC_MS / S.speed) advance();
+      rafHandle = requestAnimationFrame(draw);
+      return;
+    }
     const ctx = S.ctx;
     ctx.clearRect(0, 0, W, H);
     const st = S.steps[S.cur];
@@ -412,6 +423,76 @@
   function advance() {
     if (S.cur < S.steps.length - 1) setStep(S.cur + 1, true);
     else { S.playing = false; updateButtons(); }
+  }
+
+  // ---- IOS 终端回放 / 模式图 / 场景面板（troubleshoot 后新增） ----------
+
+  function renderTerm(st) {
+    const el = $('term');
+    el.innerHTML = '';
+    for (const line of st.term || []) {
+      const div = document.createElement('div');
+      if (line.k === 'in') {
+        div.className = line.silent ? 't-in t-silent' : 't-in';
+        // prompt+text 拼进同一等宽 textContent：保证 ^ 脱字符行按列对齐
+        div.textContent = line.silent ? line.prompt : line.prompt + line.text;
+      } else {
+        div.className = 't-out';
+        div.textContent = line.text === '' ? '\u00a0' : line.text;
+      }
+      el.appendChild(div);
+    }
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function renderModebox(st) {
+    const mode = st.mode;
+    $('setup-chip').style.display = mode === 'setup' ? '' : 'none';
+    document.querySelectorAll('#modebox .mbox').forEach(b => {
+      b.classList.toggle('cur', b.dataset.mode === mode ||
+        (mode === 'config-line' && b.dataset.mode === 'config'));
+    });
+    const sub = document.querySelector('#modebox .submode');
+    if (sub) sub.classList.toggle('cur', mode === 'config-line');
+  }
+
+  function renderIosSide(st) {
+    const el = $('ios-side');
+    if (S.DATA.scenario === 'save') {
+      const f = st.files || { ram: [], nvram: [] };
+      const box = (title, entries) =>
+        '<div class="filebox"><div class="ft">' + title + '</div>' +
+        (entries.length
+          ? entries.map(e => '<div class="entry">' + e + '</div>').join('')
+          : '<div class="empty">（空）</div>') +
+        '</div>';
+      el.style.display = '';
+      el.innerHTML = '<h3>配置文件</h3>' +
+        box('RAM · running-config（易失）', f.ram) +
+        box('NVRAM · startup-config（持久）', f.nvram);
+    } else if (S.DATA.scenario === 'passwords') {
+      const p = st.pw || {};
+      const dash = '\u2014';
+      let html = '<h3>密码面板</h3>' +
+        '<div class="pwrow"><span class="k">Console 密码</span><span>' +
+        (p.console_pw || dash) + '</span></div>' +
+        '<div class="pwrow"><span class="k">login（开关）</span><span>' +
+        (p.console_login ? '✓ 已启用' : '✗ 未配置') + '</span></div>' +
+        '<div class="pwrow"><span class="k">enable password</span>' +
+        '<span class="pw-plain">' + (p.enable_password || dash) +
+        '</span></div>' +
+        '<div class="pwrow"><span class="k">enable secret</span>' +
+        '<span class="pw-secret">' +
+        (p.enable_secret ? 'Cisco@123（密文存储）' : dash) + '</span></div>';
+      if (p.enable_password && p.enable_secret) {
+        html += '<div class="pwbadge">两把 enable 锁并存 · 以 secret 为准</div>';
+      }
+      el.style.display = '';
+      el.innerHTML = html;
+    } else {
+      el.style.display = 'none';
+      el.innerHTML = '';
+    }
   }
 
   // ---- 原理卡 / 控件 ---------------------------------------------------
@@ -496,14 +577,19 @@
 
     S.pos = {};
     const N = S.devices.length;
-    S.devices.forEach((d, i) => {
-      S.pos[d.id] = { x: 90 + i * (W - 180) / (N - 1), y: DEV_Y };
-    });
+    if (N > 1) {                      // ios 主题为空链：跳过布局计算
+      S.devices.forEach((d, i) => {
+        S.pos[d.id] = { x: 90 + i * (W - 180) / (N - 1), y: DEV_Y };
+      });
+    }
 
-    // PDU 色块图例只对 encap 主题有意义
+    // 按 topic 切换画布/终端布局与面板：PDU 图例仅 encap、分层面板仅 ios 隐藏
+    const isIos = data.topic === 'ios';
+    $('canvas-row').style.display = isIos ? 'none' : 'flex';
+    $('term-col').style.display = isIos ? 'flex' : 'none';
+    $('stacks').style.display = isIos ? 'none' : '';
     const legend = document.querySelector('div.legend.pdu-legend');
-    if (legend) legend.style.display =
-      data.topic === 'troubleshoot' ? 'none' : '';
+    if (legend) legend.style.display = data.topic === 'encap' ? '' : 'none';
 
     bindControls();
     bindStacks();

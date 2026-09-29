@@ -70,5 +70,28 @@ class TroubleshootConceptTests(unittest.TestCase):
             concepts.for_topic("troubleshoot", "cable")["scenario"])
 
 
+class IosConceptTests(unittest.TestCase):
+    def test_schema_keys(self):
+        card = concepts.for_topic("ios", "modes")
+        for key in ("title", "problem", "idea", "rules", "glossary", "scenario"):
+            self.assertIn(key, card)
+            self.assertTrue(card[key])
+        self.assertGreaterEqual(len(card["rules"]), 3)
+        self.assertGreaterEqual(len(card["glossary"]), 3)
+
+    def test_scenario_notes_differ_and_prefixed(self):
+        notes = [concepts.for_topic("ios", s)["scenario"]
+                 for s in ("modes", "save", "passwords")]
+        for note in notes:
+            self.assertIn("场景看点", note)
+        self.assertEqual(len(set(notes)), 3)
+
+    def test_unknown_scenario_falls_back_to_modes(self):
+        card = concepts.for_topic("ios", "bogus")
+        self.assertEqual(
+            card["scenario"],
+            concepts.for_topic("ios", "modes")["scenario"])
+
+
 if __name__ == "__main__":
     unittest.main()

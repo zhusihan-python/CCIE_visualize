@@ -12,6 +12,9 @@ python3 generate.py                                # 跨网段场景 -> encap.ht
 python3 generate.py -t same-net                    # 同网段对照场景 -> encap-same.html
 python3 generate.py -p troubleshoot                # 排错·网线中断 -> troubleshoot.html
 python3 generate.py -p troubleshoot -t service     # 排错·服务未启动
+python3 generate.py -p ios                         # IOS·模式漫游 -> ios.html
+python3 generate.py -p ios -t save                 # IOS·配置保存
+python3 generate.py -p ios -t passwords            # IOS·双密码关卡
 python3 generate.py --json doc.json                # 同时导出原始步骤数据
 open encap.html                                    # 双击打开也行，无需服务器
 ```
@@ -50,12 +53,28 @@ open encap.html                                    # 双击打开也行，无需
 （✓ 通过 / ✗ 失败 / · 未查，当前检查行高亮）；ping 以琥珀点直线往返
 表示成功，中途跌落 + 红 ✕ 表示失败。
 
+## 内容三：Cisco IOS 基础操作（第 03 课 · `-p ios`）
+
+左侧为**终端回放**（只读累计回放，逐条命令 + 设备回显），右侧为 IOS
+模式图（当前模式高亮，`(config-line)#` 为子模式芯片，开机向导有专属
+横幅）与场景面板。三场景：
+
+| 场景 | 步数 | 教学看点 |
+|---|---|---|
+| `-t modes`（默认） | 18 | 三种模式与提示符对照；? 帮助 / Tab 补全 / 缩写 / ^ 错误定位 / no 原则 / Ctrl+Z |
+| `-t save` | 21 | running(RAM) vs startup(NVRAM) 双盒；不保存 reload 丢配置的高潮；write 同步与恢复；write erase 恢复出厂（向导再现） |
+| `-t passwords` | 27 | Console 门三件套（login 不加 = 白配）；enable password（明文）vs secret（密文）并存时 secret 胜出（% Bad secrets 实证） |
+
+可测不变量：输入行提示符后缀始终与上一步的 IOS 模式一致
+（`Password:` / `[yes/no]:` / `[confirm]` 等非模式提示行除外）。
+
 ## 代码结构
 
 | 文件 | 职责 |
 |---|---|
 | `encap.py` | 封装/解封装故事生成器（纯逻辑）：设备链、两场景、步骤 + 中文讲解 |
 | `troubleshoot.py` | 分层排错故事生成器（纯逻辑）：三故障场景、检查清单快照、ping 事件 |
+| `ios.py` | IOS 基础操作故事生成器（纯逻辑）：三场景终端回放、模式状态机、files/pw 面板快照 |
 | `concepts.py` | 「📖 原理」卡内容与分场景看点（按 topic 注册） |
 | `generate.py` | CLI 与 `build_document()` 统一入口；`TOPICS` 映射收口场景/标题/输出名；模板占位符替换出单文件 HTML |
 | `template.html` | 页面外壳 + 三列分层对照面板（`__DATA__` / `/*__PLAYER__*/` 双占位符） |
@@ -72,10 +91,14 @@ open encap.html                                    # 双击打开也行，无需
 - 排错场景的 ping 动画与检查项为教学示意：真实环境中「错网段」的表现是
   ARP 解析失败 / 请求超时（画为中途跌落）；不做真实 CLI 命令模拟，
   每层只选一个代表性检查动作。
+- IOS 场景的终端为**累计回放**（reload 不清屏）；回显为教学节选（show
+  running-config 用 `......` 省略无关段落）；密码输入不回显为真实行为
+  还原；reload / write erase 的确认行已按真实 IOS 还原；交互式输入、
+  华为 VRP 对照不在本工具范围（VRP 差异仅见原理卡词条）。
 
 ## 测试
 
 ```bash
-python3 -m unittest test_encap test_concepts test_render test_troubleshoot
+python3 -m unittest test_encap test_concepts test_render test_troubleshoot test_ios
 ```
 

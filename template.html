@@ -130,6 +130,62 @@
     color: #c7d2fe; font-size: 13px; line-height: 1.6;
     border-left: 3px solid #6366f1; padding-left: 10px; margin: 6px 0 2px;
   }
+  /* ---- IOS 终端回放布局 ---- */
+  #term-col { display: flex; gap: 14px; align-items: stretch; }
+  #term {
+    flex: 1 1 auto; min-width: 0; height: 640px; overflow-y: auto;
+    background: #050807; border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px;
+    font: 13px/1.55 "SF Mono", Menlo, Consolas, monospace;
+    color: #4ade80; white-space: pre;
+  }
+  #term .t-in { color: #fbbf24; }
+  #term .t-out { color: #4ade80; }
+  #term .t-silent { color: #94a3b8; }
+  .ios-right { flex: 0 0 320px; display: flex; flex-direction: column; gap: 14px; }
+  #modebox, #ios-side { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; font-size: 13px; }
+  #modebox h3, #ios-side h3 { margin: 0 0 8px; font-size: 13px;
+    color: var(--muted); font-weight: 600; }
+  #setup-chip {
+    display: none; margin-bottom: 8px; padding: 6px 10px; border-radius: 8px;
+    background: rgba(245,158,11,.15); border: 1px solid #f59e0b; color: #fde68a;
+    font-size: 12px; text-align: center;
+  }
+  #modebox .mbox {
+    border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px;
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  }
+  #modebox .mbox .mp { color: #fbbf24;
+    font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+  #modebox .mbox.cur { border-color: #93c5fd; background: #1e3a8a;
+    box-shadow: 0 0 0 1px #93c5fd; }
+  #modebox .marr { color: #64748b; font-size: 11.5px; text-align: center;
+    padding: 3px 0; }
+  #modebox .submode { display: none; width: 100%; color: #94a3b8;
+    font-size: 11.5px; margin-top: 2px; }
+  #modebox .submode.cur { display: block; color: #bfdbfe; }
+  .filebox { border: 1px solid var(--border); border-radius: 9px;
+    padding: 8px 10px; margin-bottom: 8px; }
+  .filebox .ft { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .filebox .entry {
+    font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: #86efac;
+    background: rgba(12,74,110,.35); border-radius: 6px; padding: 2px 8px;
+    margin: 3px 0;
+  }
+  .filebox .empty { color: #475569; font-size: 12px; }
+  .pwrow { display: flex; justify-content: space-between; gap: 8px;
+    padding: 5px 0; border-bottom: 1px dashed var(--border); font-size: 12.5px; }
+  .pwrow .k { color: var(--muted); }
+  .pw-plain { color: #fca5a5; font-family: "SF Mono", Menlo, monospace; }
+  .pw-secret { color: #4ade80; font-family: "SF Mono", Menlo, monospace; }
+  .pwbadge { margin-top: 8px; padding: 5px 10px; border-radius: 8px;
+    background: rgba(99,102,241,.15); border: 1px solid #6366f1;
+    color: #c7d2fe; font-size: 12px; text-align: center; }
+  @media (max-width: 900px) {
+    #term-col { flex-direction: column; }
+    .ios-right { flex-basis: auto; }
+  }
 </style>
 </head>
 <body>
@@ -154,7 +210,7 @@
   </div>
 </header>
 <main>
-  <div class="stage-row">
+  <div class="stage-row" id="canvas-row">
     <div class="stage-left">
       <canvas id="stage"></canvas>
       <div class="legend pdu-legend">
@@ -211,6 +267,28 @@
       </div>
       <div id="stack-note">点击任意层查看它的作用；播放时当前步骤所在层会自动高亮。</div>
     </aside>
+  </div>
+  <div id="term-col" style="display:none">
+    <div id="term" aria-label="IOS 终端回放"></div>
+    <div class="ios-right">
+      <div id="modebox">
+        <h3>IOS 模式（当前高亮）</h3>
+        <div id="setup-chip">🧭 开机向导 System Configuration Dialog</div>
+        <div class="mbox" data-mode="config"><b>全局配置模式</b>
+          <span class="mp">(config)#</span>
+          <div class="submode">(config-line)# · 线路子模式</div>
+        </div>
+        <div class="marr">↑ conf t ｜ ↓ exit ／ Ctrl+Z 直达</div>
+        <div class="mbox" data-mode="priv"><b>特权模式</b>
+          <span class="mp">#</span>
+        </div>
+        <div class="marr">↑ enable ｜ ↓ exit</div>
+        <div class="mbox" data-mode="user"><b>用户模式</b>
+          <span class="mp">&gt;</span>
+        </div>
+      </div>
+      <div id="ios-side"></div>
+    </div>
   </div>
 </main>
 <footer>

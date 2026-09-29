@@ -15,6 +15,7 @@ from pathlib import Path
 
 import concepts
 import encap
+import ios
 import troubleshoot
 
 TEMPLATE_PATH = Path(__file__).with_name("template.html")
@@ -47,11 +48,27 @@ TOPICS = {
         },
         "build": troubleshoot.simulate,
     },
+    "ios": {
+        "scenarios": ios.SCENARIOS,
+        "titles": {
+            "modes": "IOS 模式漫游 · 三种模式与基本操作",
+            "save": "IOS 配置保存 · running vs startup",
+            "passwords": "IOS 密码 · Console 与 enable 双关卡",
+        },
+        "default_output": {
+            "modes": "ios.html",
+            "save": "ios-save.html",
+            "passwords": "ios-passwords.html",
+        },
+        "build": ios.simulate,
+    },
 }
 
 
 def _subtitle(topic, result):
     chain_ids = " → ".join(result.chain.ids())
+    if topic == "ios":
+        return f"{len(result.steps)} 步 · 终端回放"
     if topic == "troubleshoot":
         return f"{len(result.steps)} 步 · 自底向上逐层排查 · 设备链 {chain_ids}"
     return f"{len(result.steps)} 步 · 设备链 {chain_ids}"
@@ -140,6 +157,8 @@ def main(argv=None) -> None:
     if args.topic == "troubleshoot":
         print(f"  steps={len(result.steps)} fault=L{result.fault_layer} "
               f"checks_until_hit={result.checks_until_hit}")
+    elif args.topic == "ios":
+        print(f"  steps={len(result.steps)} mode_changes={result.mode_changes}")
     else:
         print(f"  steps={len(result.steps)} "
               f"pdu={' → '.join(result.sender_pdu_names)} "

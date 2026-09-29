@@ -81,7 +81,54 @@ TROUBLESHOOT = {
     ],
 }
 
-CARDS = {"encap": ENCAPE, "troubleshoot": TROUBLESHOOT}
+IOS = {
+    "title": "Cisco IOS 基础操作 · 模式、配置与密码核心思路",
+    "problem": (
+        "网络设备的所有管理能力都通过命令行（CLI）提供，而命令分属不同权限"
+        "层级；配置改在内存里、断电即失，不弄清两份配置文件的关系就会在重启"
+        "后「丢配置」；Console 口是谁插线谁就能进——设备的安全底线需要两道"
+        "密码关卡来建立。"
+    ),
+    "idea": (
+        "IOS 用提示符标识三种模式（权限层级）：Router>（用户，最低权限）"
+        "→ Router#（特权，查看一切 + 保存/重启）→ Router(config)#（全局"
+        "配置，能改设备）。配置先落在 RAM 的 running-config，write 把它拷"
+        "进 NVRAM 的 startup-config，重启只从 NVRAM 加载；密码方面，"
+        "Console 门由「line console 0 + password + login」三件套构成，"
+        "enable 门用 secret（密文）优于 password（明文），并存时 secret 为准。"
+    ),
+    "rules": [
+        "三模式对照：> 用户（只读少量）/ # 特权（查看一切 + write、reload）"
+        "/ (config)# 全局配置（能改设备）；(config-line)# 是 config 的线路子模式",
+        "进出命令：enable 升特权 · configure terminal 进配置 · exit 退一层 · "
+        "Ctrl+Z 从任意配置层直跳特权",
+        "基本功：? 全部帮助、en? 部分帮助、Tab 补全、缩写（能唯一识别即可，"
+        "如 conf t）、% Invalid input 的 ^ marker 精确定位错误位置",
+        "两份配置：running-config 在 RAM（易失）、startup-config 在 NVRAM"
+        "（持久）；reload 只加载 NVRAM；write = RAM → NVRAM 拷贝；"
+        "恢复出厂 = write erase + reload",
+        "删除配置的万能公式：怎么配的就怎么删——原命令前加 no 空格",
+        "Console 门三件套缺一不可：line console 0 + password xxx + login"
+        "（login 是开关，不配等于没锁）",
+        "enable 密码两种：password 明文（show run 可读，不安全）与 secret "
+        "密文；并存时以 secret 为准",
+    ],
+    "glossary": [
+        ["Cisco IOS", "Cisco 路由器/交换机的操作系统，命令行层级清晰"],
+        ["RAM / NVRAM", "内存（running-config，断电即失）/ 非易失存储"
+         "（startup-config，重启保留）"],
+        ["write（wr）", "特权模式下把 running-config 保存为 startup-config"],
+        ["reload", "重启设备；只会带走 NVRAM 里的配置"],
+        ["System Configuration Dialog", "空配开机的初始配置向导（新手向导），"
+         "一般答 no"],
+        ["line console 0", "本地 Console 线路（编号 0）的配置子模式"],
+        ["enable secret / password", "特权模式密码的密文/明文两种形态；"
+         "并存时 secret 生效"],
+        ["% Bad secrets", "enable 密码输错的提示——输的是失效的那把密码时也会看到"],
+    ],
+}
+
+CARDS = {"encap": ENCAPE, "troubleshoot": TROUBLESHOOT, "ios": IOS}
 
 SCENARIO_NOTES = {
     "encap": {
@@ -114,9 +161,30 @@ SCENARIO_NOTES = {
             " 80 被拒把矛头指向服务本身：ping 通 ≠ 应用好。"
         ),
     },
+    "ios": {
+        "modes": (
+            "场景看点：模式漫游。全程盯提示符：> → # → (config)# 随 enable /"
+            " conf t / exit / Ctrl+Z 变化；hostname 生效后提示符立即改名、"
+            " no hostname 又改回去；还有 ? 帮助、Tab 补全与 ^ 错误定位的"
+            " 逐拍演示。"
+        ),
+        "save": (
+            "场景看点：配置保存。盯右侧 RAM/NVRAM 双盒：hostname 只进 RAM；"
+            " 不保存 reload 后左盒清空（配置全丢的高潮）；write 后两盒同步、"
+            " 再 reload 从 NVRAM 恢复；write erase + reload 回到空配——开机"
+            " 向导再次出现就是恢复出厂的可视确认。"
+        ),
+        "passwords": (
+            "场景看点：双密码关卡。坑一：配了 password 没配 login，重连"
+            " 不要密码；补上 login 后 Console 门生效（输入不回显是真实行为）。"
+            " 坑二：enable password（明文）与 secret（密文）并存，第二道门"
+            " 只认 secret——输 password 的值会看到 % Bad secrets。"
+        ),
+    },
 }
 
-_DEFAULT_SCENARIO = {"encap": "cross-net", "troubleshoot": "cable"}
+_DEFAULT_SCENARIO = {"encap": "cross-net", "troubleshoot": "cable",
+                     "ios": "modes"}
 
 
 def for_topic(topic: str, scenario: str) -> dict:
