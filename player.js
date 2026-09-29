@@ -447,7 +447,8 @@
 
   function renderModebox(st) {
     const mode = st.mode;
-    $('setup-chip').style.display = mode === 'setup' ? '' : 'none';
+    // 'block' 显式恢复：CSS 默认 display:none，'' 只清内联会回退到 none
+    $('setup-chip').style.display = mode === 'setup' ? 'block' : 'none';
     document.querySelectorAll('#modebox .mbox').forEach(b => {
       b.classList.toggle('cur', b.dataset.mode === mode ||
         (mode === 'config-line' && b.dataset.mode === 'config'));
@@ -483,7 +484,8 @@
         '</span></div>' +
         '<div class="pwrow"><span class="k">enable secret</span>' +
         '<span class="pw-secret">' +
-        (p.enable_secret ? 'Cisco@123（密文存储）' : dash) + '</span></div>';
+        (p.enable_secret ? p.enable_secret + '（密文存储）' : dash) +
+        '</span></div>';
       if (p.enable_password && p.enable_secret) {
         html += '<div class="pwbadge">两把 enable 锁并存 · 以 secret 为准</div>';
       }

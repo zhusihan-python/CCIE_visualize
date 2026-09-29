@@ -34,10 +34,8 @@ class PackagingTests(unittest.TestCase):
         for dom_id in SHELL_IDS:
             self.assertIn(f'id="{dom_id}"', template)
             # stacks 面板由 CSS/HTML 承载，player 只用其内部两个 id；
-            # canvas-row/term-col 由 bootPlayer 的显隐分支引用
-            if dom_id in ("stacks", "term-col"):
-                self.assertIn(f'id="{dom_id}"', template)
-            else:
+            # stacks 面板由 CSS/HTML 承载，player 只用其内部两个 id
+            if dom_id != "stacks":
                 self.assertIn(dom_id, player)
 
     def test_render_escapes_closing_script_tag(self):
