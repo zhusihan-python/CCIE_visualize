@@ -8,11 +8,17 @@
 四元素缺目的 MAC → 查 ARP 表未命中 → 广播请求（全村听到、只有 PC2 应答、
 PC3 沉默丢弃）→ 单播应答 → 双方写表 → ICMP 单播往返；
 第二次 ping 查表命中，全程零广播。
+
+场景 conflict：承接 resolve 结尾的表状态。PC3 误配与 PC2 相同的 IP →
+接口 up 自动广播免费 ARP（源 IP=目标 IP=自己）→ PC1 表被合并规则悄悄
+污染 → PC2 单播冲突应答、PC3 告警 → 修复①PC3 改回正确 IP + 修复②PC2
+防守广播重申映射、纠正邻居表。免费 ARP 两个作用（检测冲突 / 更新邻居
+表）一网打尽。学习行为按 RFC 826 经典算法。
 """
 
 from dataclasses import dataclass
 
-SCENARIOS = ("resolve",)
+SCENARIOS = ("resolve", "conflict")
 
 # ---- 教学示意值（与笔记作业同网段；MAC 沿用仓库惯例格式） ----------------
 
@@ -83,8 +89,9 @@ def _entry(ip, mac, new=False):
 
 
 def _step(kind, layer, device, phase, description, bullets, *,
-          events=None, fields=None, tables=None, flash=None):
-    return {
+          events=None, fields=None, tables=None, flash=None,
+          alert=None, dev_ip=None):
+    step = {
         "kind": kind,             # initial | process | move | final
         "layer": layer,           # 1..7；initial/final 为 0（不高亮）
         "device": device,
@@ -96,6 +103,13 @@ def _step(kind, layer, device, phase, description, bullets, *,
         "arp_tables": tables or {"PC1": [], "PC2": []},
         "flash": flash or {},     # 接收判定胶囊 {设备: {ok, text}}
     }
+    # 仅 conflict 使用：⚠ 告警徽章（resolve 契约不用 alert_devices）与
+    # 设备框 IP 的每步覆盖（误配期间 PC3 显示 192.168.1.2）
+    if alert:
+        step["alert_devices"] = list(alert)
+    if dev_ip:
+        step["dev_ip"] = dict(dev_ip)
+    return step
 
 
 # ---- 报文字段面板快照 ---------------------------------------------------
@@ -183,10 +197,7 @@ class ArpResult:
     phase_names: list          # pdu_name 全序列（测试 ground truth）
 
 
-def simulate(scenario="resolve"):
-    if scenario != "resolve":
-        raise ValueError(f"unknown scenario: {scenario!r} "
-                         f"(choose from {', '.join(SCENARIOS)})")
+def _simulate_resolve():
     chain = bus_chain()
     empty_tables = {"PC1": [], "PC2": []}
     pc2_learned = {"PC1": [], "PC2": [_entry(PC1_IP, PC1_MAC, new=True)]}
@@ -434,10 +445,333 @@ def simulate(scenario="resolve"):
               if len(s["events"]) > 1 and
               len({e["from"] for e in s["events"]}) == 1]
     return ArpResult(
-        scenario=scenario,
+        scenario="resolve",
         chain=chain,
         steps=steps,
         fanout_steps=fanout,
         table_writes=2,
         phase_names=[s["pdu_name"] for s in steps],
     )
+
+
+# ---- 场景 conflict：免费 ARP 与 IP 冲突 ---------------------------------
+
+# 阶段标签序列同时是 test_arp 的 ground truth；改动分镜须同步测试。
+CONFLICT_PHASES = (
+    "—",
+    "误配同 IP",
+    "免费 ARP · 构造",
+    "免费 ARP · 广播",
+    "PC1 · 表被改写",
+    "PC2 · 发现冲突",
+    "冲突应答 · 构造",
+    "冲突应答 · 单播",
+    "IP 冲突 · 告警",
+    "暗伤 · 表指向 PC3",
+    "修复① · PC3 改回 .3",
+    "修复② · 防守免费 ARP",
+    "防守广播",
+    "PC1 · 表被纠正",
+    "PC3 · 沉默",
+    "—",
+)
+
+
+def _gratuitous_fields(hot=True):
+    """PC3 的免费 ARP 请求：源 IP = 目标 IP = 自己（误配的 192.168.1.2）。"""
+    return [
+        _field("以太网头 · 目的 MAC", f"{BROADCAST_MAC}（广播）", "bcast", hot),
+        _field("以太网头 · 源 MAC", f"{PC3_MAC}（PC3）", "uni"),
+        _field("ARP · 操作码", "1 = ARP 请求", None, hot),
+        _field("ARP · 发送方 IP", f"{PC2_IP}（自己 · 误配的新 IP）", None, hot),
+        _field("ARP · 发送方 MAC", f"{PC3_MAC}（PC3）"),
+        _field("ARP · 目标 IP", f"{PC2_IP}（也是自己！）", None, hot),
+        _field("ARP · 目标 MAC", f"{UNKNOWN_MAC}（未知 · 全 0）", "unk", hot),
+    ]
+
+
+def _conflict_reply_fields(hot=True):
+    """PC2 的冲突应答（单播）：持有人声明「这个 IP 我在用」。"""
+    return [
+        _field("以太网头 · 目的 MAC", f"{PC3_MAC}（PC3 · 单播）", "uni", hot),
+        _field("以太网头 · 源 MAC", f"{PC2_MAC}（PC2）", "uni"),
+        _field("ARP · 操作码", "2 = ARP 应答", None, hot),
+        _field("ARP · 发送方 IP", f"{PC2_IP}（PC2 · 真正持有人）", None, hot),
+        _field("ARP · 发送方 MAC", f"{PC2_MAC}（PC2）", None, hot),
+        _field("ARP · 目标 IP", f"{PC2_IP}（PC3 抢配的）"),
+        _field("ARP · 目标 MAC", f"{PC3_MAC}（PC3）"),
+    ]
+
+
+def _defensive_fields(hot=True):
+    """PC2 的防守性免费 ARP：重申正确映射（源 IP = 目标 IP = 自己）。"""
+    return [
+        _field("以太网头 · 目的 MAC", f"{BROADCAST_MAC}（广播）", "bcast", hot),
+        _field("以太网头 · 源 MAC", f"{PC2_MAC}（PC2）", "uni"),
+        _field("ARP · 操作码", "1 = ARP 请求", None, hot),
+        _field("ARP · 发送方 IP", f"{PC2_IP}（PC2 · 重申持有人）", None, hot),
+        _field("ARP · 发送方 MAC", f"{PC2_MAC}（PC2）", None, hot),
+        _field("ARP · 目标 IP", f"{PC2_IP}（自己）", None, hot),
+        _field("ARP · 目标 MAC", f"{UNKNOWN_MAC}（未知 · 全 0）", "unk", hot),
+    ]
+
+
+def _simulate_conflict():
+    chain = bus_chain()
+    pc2_only = {"PC1": [_entry(PC2_IP, PC2_MAC)],
+                "PC2": [_entry(PC1_IP, PC1_MAC)]}
+    pc1_poisoned_new = {"PC1": [_entry(PC2_IP, PC3_MAC, new=True)],
+                        "PC2": [_entry(PC1_IP, PC1_MAC)]}
+    pc1_poisoned = {"PC1": [_entry(PC2_IP, PC3_MAC)],
+                    "PC2": [_entry(PC1_IP, PC1_MAC)]}
+    pc1_fixed_new = {"PC1": [_entry(PC2_IP, PC2_MAC, new=True)],
+                     "PC2": [_entry(PC1_IP, PC1_MAC)]}
+    pc1_fixed = {"PC1": [_entry(PC2_IP, PC2_MAC)],
+                 "PC2": [_entry(PC1_IP, PC1_MAC)]}
+    misconf = {"PC3": PC2_IP}          # 误配期间设备框 IP 覆盖
+
+    steps = [
+        _step("initial", 0, "PC3", CONFLICT_PHASES[0],
+              "承接上一篇结尾：PC1 和 PC2 刚通信完——PC1 的 ARP 表里有 "
+              f"{PC2_IP} → PC2，PC2 的表里有 {PC1_IP} → PC1；PC3 的表还是"
+              "空的。这一篇的主角是 PC3：它将被误配成与 PC2 相同的 IP，一场 "
+              "IP 冲突全程上演。免费 ARP 的两个作用——检测冲突、更新邻居"
+              "表——都会演到。",
+              [f"承接上篇：PC1 表 {PC2_IP}→PC2 / PC2 表 {PC1_IP}→PC1",
+               f"PC3 即将误配 {PC2_IP}（与 PC2 重复）",
+               "看什么：免费 ARP 怎么暴露冲突、邻居表被谁污染又怎么纠正"],
+              tables=pc2_only),
+        _step("process", 3, "PC3", CONFLICT_PHASES[1],
+              "管理员在 PC3 上配 IP，手一滑把 192.168.1.3 敲成了 "
+              f"{PC2_IP}——和 PC2 一模一样。注意设备框下方的 IP 显示已经"
+              "变成误配值。IP 地址不像 MAC 出厂烧录，它可以随手改——这正是"
+              "冲突的根源：没有任何机制阻止两台设备配同一个 IP。",
+              [f"PC3 被误配为 {PC2_IP}（与 PC2 冲突）",
+               "IP 可随意配置（对比 MAC 出厂烧录、全球唯一）",
+               "系统不会立刻报错——冲突要靠免费 ARP 才能暴露"],
+              fields=[
+                  _field("PC3 · 接口 IP", f"{PC2_IP}（误配）", None, True),
+                  _field("ARP · 发送方 IP（下一帧）", f"{PC2_IP}（自己）",
+                         None, True),
+                  _field("ARP · 发送方 MAC（下一帧）", f"{PC3_MAC}（PC3）"),
+              ],
+              tables=pc2_only, dev_ip=misconf),
+        _step("process", 2, "PC3", CONFLICT_PHASES[2],
+              "接口配置生效（up）时，系统的标准动作是发一帧免费 ARP 探测"
+              "冲突。看左下面板的字段——这就是免费 ARP 的身份证：操作码仍是"
+              "「请求」；发送方 IP 填自己新配的地址；最妙的是目标 IP 也填同"
+              "一个——问的正是「除了我，还有谁在用这个 IP？」；目标 MAC 全 "
+              "0（不知道才问）。外层以太网头目的 = 广播，全村都要听。",
+              [f"免费 ARP = 请求（OP=1）+ 源 IP = 目标 IP = {PC2_IP}（自己）",
+               f"「我是 {PC2_IP}，谁也是 {PC2_IP}？」",
+               f"以太网目的 = 广播 {BROADCAST_MAC}——人人都得听"],
+              fields=_gratuitous_fields(),
+              tables=pc2_only, dev_ip=misconf),
+        _step("move", 1, "PC3", CONFLICT_PHASES[3],
+              "免费 ARP 以广播登上总线，两份复制帧同时起飞、一近一远奔向 "
+              "PC1 与 PC2。对 PC2 来说，这帧是冲着它的 IP 来的；对 PC1 来"
+              "说，只是又一帧「与我无关」的广播——但别走开，下一步有它的"
+              "戏。",
+              ["广播扇出：PC3 → PC1 与 PC3 → PC2 同时起飞",
+               "无人应答 = 没人用这个 IP；有人应答 = 冲突",
+               "PC1/PC2 都会按 RFC 826 顺手处理发送方字段"],
+              events=[
+                  {"from": "PC3", "to": "PC1", "kind": "frame",
+                   "label": "免费 ARP 请求（广播）", "hue": "arp"},
+                  {"from": "PC3", "to": "PC2", "kind": "frame",
+                   "label": "免费 ARP 请求（广播）", "hue": "arp"},
+              ],
+              fields=_cool(_gratuitous_fields()),
+              tables=pc2_only, dev_ip=misconf),
+        _step("process", 2, "PC1", CONFLICT_PHASES[4],
+              "PC1 收到广播：目标 IP 不是我——不应答。但按 RFC 826 的合并"
+              "规则，请求「发送方 IP/MAC」是要顺手记的：PC1 表里已有 "
+              f"{PC2_IP} 的条目（上一篇 ping 学的，指向 PC2）——于是被改写"
+              "成 PC3 的 MAC！IP 冲突最阴险的伤害在这一步悄悄完成：PC1 之"
+              f"后再发 {PC2_IP}，帧会飞向 PC3。",
+              ["PC1：非目标 → 不应答；发送方字段 → 合并进表",
+               f"表项 {PC2_IP}：PC2 的 MAC 被改写为 PC3 的 MAC",
+               "暗伤形成：发往 .2 的流量将跑偏（稍后第 10 步显形）"],
+              fields=[
+                  _field("ARP · 发送方 IP", f"{PC2_IP}（PC3 声称）", None, True),
+                  _field("ARP · 发送方 MAC", f"{PC3_MAC}（PC3）→ 改写表",
+                         None, True),
+                  _field("以太网头 · 目的 MAC", f"{BROADCAST_MAC}（广播）",
+                         "bcast"),
+              ],
+              tables=pc1_poisoned_new, dev_ip=misconf,
+              flash={"PC1": {"ok": True, "text": "收下 · 顺手改写表"}}),
+        _step("process", 2, "PC2", CONFLICT_PHASES[5],
+              "PC2 收到同一帧，逐字段一看：发送方 IP = "
+              f"{PC2_IP}——这是我自己的 IP！有人配了和我一样的地址还在全村"
+              "广播。PC2 不需要等谁通知，冲突实锤了；它立刻准备一帧应答，"
+              "把真正的持有人信息回给 PC3。",
+              [f"PC2：发送方 IP = 我持有的 {PC2_IP} → 发现冲突",
+               "免费 ARP 冲突检测：冲突方（而非被抢方）先发声",
+               "PC2 将以单播应答回敬——只回给 PC3"],
+              fields=[
+                  _field("ARP · 发送方 IP", f"{PC2_IP}（= 我持有的 IP！）",
+                         None, True),
+                  _field("ARP · 发送方 MAC", f"{PC3_MAC}（PC3）", None, True),
+                  _field("ARP · 目标 IP", f"{PC2_IP}（也是自己）", None, True),
+              ],
+              tables=pc1_poisoned, dev_ip=misconf,
+              flash={"PC2": {"ok": True, "text": "收下 · 在抢我的 IP"}}),
+        _step("process", 2, "PC2", CONFLICT_PHASES[6],
+              "PC2 构造冲突应答：操作码=2（应答）；发送方填自己——"
+              f"{PC2_IP} → PC2 的 MAC，这就是「这个 IP 我在用」的正式声明；"
+              "目标 IP/MAC 直接抄请求里的发送方（PC3 的 MAC 是从那帧里学来"
+              "的）。以太网头目的 = PC3 单播：应答只需要回给冲突方，不必再"
+              "吵全村。",
+              [f"OP=2 应答：发送方 = {PC2_IP} / {PC2_MAC}（持有人声明）",
+               "目标 = PC3（IP/MAC 均从请求的发送方字段学来）",
+               "单播回敬——「你不需要用这个 IP」"],
+              fields=_conflict_reply_fields(),
+              tables=pc1_poisoned, dev_ip=misconf),
+        _step("move", 1, "PC2", CONFLICT_PHASES[7],
+              "冲突应答以单播送达 PC3——与第 4 步的广播形成对照：探测用广播"
+              "喊话，应答用单播点名。",
+              ["单播应答：PC2 → PC3",
+               "对照：免费 ARP 广播问，冲突应答单播答",
+               "当前 PDU：帧（Frame）→ 总线比特流"],
+              events=[{"from": "PC2", "to": "PC3", "kind": "frame",
+                       "label": "冲突应答（单播）", "hue": "arp"}],
+              fields=_cool(_conflict_reply_fields()),
+              tables=pc1_poisoned, dev_ip=misconf),
+        _step("process", 2, "PC3", CONFLICT_PHASES[8],
+              f"PC3 收到应答——「有人已经在用 {PC2_IP} 了」。系统弹出 IP "
+              "冲突告警（设备上方 ⚠ 亮起并持续）。至此免费 ARP 的第一个作用"
+              "完成闭环：广播探测 → 有人应答 → 冲突实锤。真实世界里 PC2 "
+              "一侧往往也会弹冲突提示——两头都知道出事了。",
+              ["PC3 收到应答 → IP 冲突告警（⚠ 持续显示）",
+               "作用①闭环：探测（广播）→ 应答（单播）→ 告警",
+               "真实系统：冲突双方通常都会收到提示"],
+              fields=_cool(_conflict_reply_fields()),
+              tables=pc1_poisoned, dev_ip=misconf,
+              alert=["PC3"],
+              flash={"PC3": {"ok": False, "text": "⚠ IP 冲突！"}}),
+        _step("process", 2, "PC1", CONFLICT_PHASES[9],
+              "冲突不只是弹个告警。回看 PC1 的 ARP 表（右下）："
+              f"{PC2_IP} 仍指向 PC3 的 MAC——第 5 步被改写后一直没纠正。如果"
+              f"此刻 PC1 ping {PC2_IP}，封装时会查表命中 PC3 的 MAC，帧直接"
+              "飞向 PC3——数据就跑偏了。表项存在就不会重新 ARP，污染会一直"
+              "持续到老化或被主动更正。",
+              [f"PC1 表仍指向 PC3：发往 {PC2_IP} 的帧将跑偏",
+               "表项未 miss 就不会重新 ARP——污染持续",
+               "IP 冲突的暗伤：不只是报错，流量会错向"],
+              fields=[
+                  _field("以太网头 · 目的 MAC",
+                         f"{PC3_MAC}（查表所得 · 指向 PC3！）", "uni", True),
+                  _field("以太网头 · 源 MAC", f"{PC1_MAC}（PC1）", "uni"),
+                  _field("IP 头 · 目的 IP", PC2_IP),
+                  _field("载荷", "ICMP Echo 请求（发出即跑偏）", None, True),
+              ],
+              tables=pc1_poisoned, dev_ip=misconf,
+              alert=["PC3"],
+              flash={"PC1": {"ok": False, "text": "发往 .2 将跑偏 PC3"}}),
+        _step("process", 3, "PC3", CONFLICT_PHASES[10],
+              "修复分两步。第一步改源头：管理员把 PC3 的 IP 改回规划值 "
+              f"{PC3_IP}——设备框下方的显示恢复，⚠ 告警摘除。但注意：PC1 "
+              "表里的污染还残留着，误配的后果不会随配置改对而自动消失。",
+              [f"修复①：PC3 改回 {PC3_IP}，告警摘除",
+               "但 PC1 的表仍指向 PC3——污染残留",
+               "需要有人把正确映射重新广播出去"],
+              fields=[
+                  _field("PC3 · 接口 IP", f"{PC3_IP}（改回规划值）", None,
+                         True),
+                  _field("ARP · 发送方 IP（下一帧）", f"{PC3_IP}（自己）",
+                         None, True),
+                  _field("ARP · 发送方 MAC（下一帧）", f"{PC3_MAC}（PC3）"),
+              ],
+              tables=pc1_poisoned),
+        _step("process", 2, "PC2", CONFLICT_PHASES[11],
+              "第二步由真正的持有人出手：PC2 发一帧防守性免费 ARP——报文与"
+              " PC3 当初那帧长得几乎一样（源 IP = 目标 IP = "
+              f"{PC2_IP}、广播、请求），唯一区别是发送方 MAC 换成 PC2 的。"
+              "这就是免费 ARP 的第二个作用：主动把自己的 IP→MAC 声明出去，"
+              "刷新所有邻居的缓存。网卡更换、VRRP 主备切换（IP 漂移）后都靠"
+              "它通知全网。",
+              [f"修复②：PC2 广播重申 {PC2_IP} → {PC2_MAC}",
+               "免费 ARP 作用②：更新邻居 ARP 表（换网卡/IP 漂移同理）",
+               "表项存在不会重新 ARP——必须有人主动更正"],
+              fields=_defensive_fields(),
+              tables=pc1_poisoned),
+        _step("move", 1, "PC2", CONFLICT_PHASES[12],
+              "防守广播登上总线，第二次扇出：PC1 与 PC3 又一次同时收到"
+              f"「{PC2_IP} 的声明」——但这一次，声明人是真正的持有人 PC2。",
+              ["第二次广播扇出：PC2 → PC1 与 PC2 → PC3",
+               "同样的广播格式，发送方换成了正确的人",
+               "邻居们的表即将被这帧纠正"],
+              events=[
+                  {"from": "PC2", "to": "PC1", "kind": "frame",
+                   "label": "免费 ARP（防守广播）", "hue": "arp"},
+                  {"from": "PC2", "to": "PC3", "kind": "frame",
+                   "label": "免费 ARP（防守广播）", "hue": "arp"},
+              ],
+              fields=_cool(_defensive_fields()),
+              tables=pc1_poisoned),
+        _step("process", 2, "PC1", CONFLICT_PHASES[13],
+              "PC1 收到广播，合并发送方字段：表里的 "
+              f"{PC2_IP} 从 PC3 的 MAC 纠正回 PC2 的 MAC（右下角行高亮）。"
+              "暗伤愈合——之后发往 .2 的帧将回到正轨。「免费 ARP 更新邻居 "
+              "ARP 表」这句话，此刻有了画面。",
+              [f"PC1 合并：{PC2_IP} → {PC2_MAC}（纠正完成）",
+               "暗伤愈合：流量回正轨",
+               "免费 ARP 作用②在此闭环"],
+              fields=[
+                  _field("ARP · 发送方 IP", f"{PC2_IP}（PC2）", None, True),
+                  _field("ARP · 发送方 MAC", f"{PC2_MAC}（PC2）→ 纠正表",
+                         None, True),
+                  _field("以太网头 · 目的 MAC", f"{BROADCAST_MAC}（广播）",
+                         "bcast"),
+              ],
+              tables=pc1_fixed_new,
+              flash={"PC1": {"ok": True, "text": "表已纠正"}}),
+        _step("process", 2, "PC3", CONFLICT_PHASES[14],
+              "PC3 也收到了这帧广播：目标 IP 不是我（我已经改回 "
+              f"{PC3_IP} 了）——不应答；自己表里也没有 .2 的旧条目，按 "
+              "RFC 826 经典算法无条目不新增。沉默，和上一篇 PC3 的表现一模"
+              "一样：非目标设备的本分。",
+              ["PC3：非目标 → 不应答；无旧条目 → 不新增",
+               "与场景 A 的 PC3 行为完全一致（RFC 826 经典算法）",
+               "沉默即正常——若有人应答才说明又有冲突"],
+              fields=[
+                  _field("ARP · 目标 IP", f"{PC2_IP}（≠ 本机 {PC3_IP}）",
+                         None, True),
+                  _field("ARP · 发送方 IP", f"{PC2_IP}（PC2）"),
+                  _field("ARP · 发送方 MAC", f"{PC2_MAC}（PC2）"),
+              ],
+              tables=pc1_fixed,
+              flash={"PC3": {"ok": False, "text": "丢弃 · 目标 IP 不是我"}}),
+        _step("final", 0, "PC3", CONFLICT_PHASES[15],
+              "全程回顾：免费 ARP = 源 IP 与目标 IP 都填自己的广播请求。"
+              "① 冲突检测：配上 IP 就广播自问，无人应答 = 地址可用，有人"
+              "应答 = 冲突告警；② 更新邻居表：真正的持有人广播重申映射，把"
+              "被污染的邻居表纠正回来。两句话带走：IP 冲突的伤害不止告警"
+              "——邻居 ARP 表会被悄悄污染、流量跑偏；修复 = 改对配置 + "
+              "防守广播。",
+              ["免费 ARP：源 IP = 目标 IP = 自己（广播请求）",
+               "无人应答 = 没冲突；有人应答 = 冲突",
+               "修复套路：源头改对 + 持有人防守广播刷新邻居表"],
+              tables=pc1_fixed),
+    ]
+
+    fanout = [i for i, s in enumerate(steps)
+              if len(s["events"]) > 1 and
+              len({e["from"] for e in s["events"]}) == 1]
+    return ArpResult(
+        scenario="conflict",
+        chain=chain,
+        steps=steps,
+        fanout_steps=fanout,
+        table_writes=2,             # PC1 表两次改写（污染 + 纠正）
+        phase_names=[s["pdu_name"] for s in steps],
+    )
+
+
+def simulate(scenario="resolve"):
+    builders = {"resolve": _simulate_resolve, "conflict": _simulate_conflict}
+    if scenario not in builders:
+        raise ValueError(f"unknown scenario: {scenario!r} "
+                         f"(choose from {', '.join(SCENARIOS)})")
+    return builders[scenario]()

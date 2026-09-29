@@ -67,8 +67,10 @@ TOPICS = {
         "scenarios": arp.SCENARIOS,
         "titles": {
             "resolve": "ARP 地址解析 · 首次通信全流程",
+            "conflict": "ARP 地址解析 · 免费 ARP 与 IP 冲突",
         },
-        "default_output": {"resolve": "arp.html"},
+        "default_output": {"resolve": "arp.html",
+                           "conflict": "arp-conflict.html"},
         "build": arp.simulate,
     },
 }

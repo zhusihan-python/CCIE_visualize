@@ -213,8 +213,10 @@
       // 框下信息：PC 显示 IP/MAC，其余显示角色标签
       ctx.textAlign = 'center';
       if (dev.kind === 'pc') {
+        // arp 主题允许每步快照覆盖设备框 IP（conflict：误配期间显示 .2）
+        const shownIp = (S.arp && st.dev_ip && st.dev_ip[dev.id]) || dev.ip;
         ctx.fillStyle = '#94a3b8'; ctx.font = '10.5px sans-serif';
-        ctx.fillText(dev.ip, p.x, DEV_Y + BOX_H / 2 + 16);
+        ctx.fillText(shownIp, p.x, DEV_Y + BOX_H / 2 + 16);
         ctx.fillText('MAC ' + dev.mac, p.x, DEV_Y + BOX_H / 2 + 30);
       } else {
         ctx.fillStyle = '#64748b'; ctx.font = '10.5px sans-serif';

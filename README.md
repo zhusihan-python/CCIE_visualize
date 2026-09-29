@@ -16,6 +16,7 @@ python3 generate.py -p ios                         # IOS·模式漫游 -> ios.ht
 python3 generate.py -p ios -t save                 # IOS·配置保存
 python3 generate.py -p ios -t passwords            # IOS·双密码关卡
 python3 generate.py -p arp                         # ARP·首次通信全流程 -> arp.html
+python3 generate.py -p arp -t conflict             # ARP·免费 ARP 与 IP 冲突 -> arp-conflict.html
 python3 generate.py --json doc.json                # 同时导出原始步骤数据
 open encap.html                                    # 双击打开也行，无需服务器
 ```
@@ -72,7 +73,9 @@ open encap.html                                    # 双击打开也行，无需
 ## 内容四：ARP 地址解析（第 04 课 · `-p arp`）
 
 三台 PC 接入同一段**共享总线**（无交换机，对应笔记「广播多点接入 BMA」）。
-`-t resolve`（默认，19 步）：PC1 第一次 ping PC2 的完整前戏与正片——
+两个场景——
+
+- `-t resolve`（默认，19 步）：PC1 第一次 ping PC2 的完整前戏与正片——
 
 - **四元素缺一**：源/目的 IP、源 MAC 都有，唯独目的 MAC 不知道，帧封
   不出去（左下字段面板实时展开当前帧的每个字段）；
@@ -82,8 +85,16 @@ open encap.html                                    # 双击打开也行，无需
 - **表是缓存**：双方各写入一行 dynamic 表项（右下双表，新行高亮）；
   第二次 ping 查表命中，全程零广播——对照第一次的广播一目了然。
 
+- `-t conflict`（16 步，承接 resolve 结尾的表状态）：PC3 误配与 PC2 相同
+  的 IP → 免费 ARP 广播探测（**源 IP = 目标 IP = 自己**）→ PC2 单播冲突
+  应答、PC3 ⚠ 告警 → **暗伤**：PC1 的 ARP 表被 RFC 826 合并规则悄悄改写、
+  发往 .2 的流量将跑偏 → 修复①PC3 改回正确 IP（设备框 IP 显示随步恢复）+
+  修复②PC2 防守广播重申映射、纠正邻居表。免费 ARP 的两个作用（检测冲突 /
+  更新邻居表）一网打尽。
+
 画布语义：琥珀粒子 = ARP 帧，天蓝粒子 = ICMP 帧；设备下方绿/红胶囊 =
-网卡接收判定（✓ 收下 / ✕ 丢弃——MAC 过滤就是以太网寻址）。
+网卡接收判定（✓ 收下 / ✕ 丢弃——MAC 过滤就是以太网寻址）；⚠ 徽章 =
+IP 冲突告警（conflict 场景，告警—修复区间持续）。
 
 ## 代码结构
 
@@ -111,6 +122,9 @@ open encap.html                                    # 双击打开也行，无需
   PC3（非目标）不加，这也正是只画 PC1/PC2 两块表的原因；另有实现在
   收到请求时无条件更新表项，本工具不采用。
 - 不做老化时间模拟，`arp -d` 仅在总结文案中提及。
+- conflict 的防守性免费 ARP 由 PC2 主动发起，为教学示意（真实栈多为自动
+  或重配触发，行为多样）；PC3 收到应答/广播后的表操作各实现不一，故事中
+  不表现（PC3 表全程空，测试固化）。
 - 防火墙（L3–L7）、AC/AP 等设备只在原理卡中以「设备看层」词条出现，
   不进入故事拓扑。
 - 排错场景的 ping 动画与检查项为教学示意：真实环境中「错网段」的表现是

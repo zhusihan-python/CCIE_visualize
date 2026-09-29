@@ -115,6 +115,17 @@ class CliTests(unittest.TestCase):
             self.assertIn("共享总线广播域", html)
             self.assertIn('"id": "PC3"', html)
 
+    def test_cli_arp_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "arp-conflict.html"
+            generate.main(["-p", "arp", "-t", "conflict", "-o", str(out)])
+            html = out.read_text(encoding="utf-8")
+            self.assertNotIn("__DATA__", html)
+            self.assertIn("ARP 地址解析 · 免费 ARP 与 IP 冲突", html)
+            self.assertIn('"scenario": "conflict"', html)
+            self.assertIn("16 步", html)
+            self.assertIn('"dev_ip"', html)
+
     def test_cli_default_output_names(self):
         # 默认输出名按 TOPICS 映射（encap→encap.html，troubleshoot→cable）
         with tempfile.TemporaryDirectory() as tmp:
