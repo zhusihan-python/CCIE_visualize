@@ -52,5 +52,5 @@ python3 generate.py --json doc.json    # 同时导出原始步骤数据
 ## 测试
 
 ```bash
-python3 -m unittest test_encap test_concepts test_render   # 30 tests
+python3 -m unittest test_encap test_concepts test_render   # 34 tests
 ```

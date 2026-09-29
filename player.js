@@ -142,16 +142,19 @@
     // 路由器接口标注：按邻接链路的左右顺序对应 interfaces
     for (const dev of S.devices) {
       if (dev.kind !== 'router' || !dev.interfaces.length) continue;
-      const mine = S.links.filter(l => l.a === dev.id || l.b === dev.id);
+      const neighbor = l => S.pos[l.a === dev.id ? l.b : l.a];
+      // interfaces 按从左到右罗列；按邻接方位对应，不依赖链路数组顺序
+      const mine = S.links.filter(l => l.a === dev.id || l.b === dev.id)
+        .sort((la, lb) => neighbor(la).x - neighbor(lb).x);
       mine.forEach((l, i) => {
         const iface = dev.interfaces[i];
         if (!iface) return;
-        const other = S.pos[l.a === dev.id ? l.b : l.a];
-        const side = other.x > S.pos[dev.id].x ? 1 : -1;
+        const side = neighbor(l).x > S.pos[dev.id].x ? 1 : -1;
+        const lx = S.pos[dev.id].x + side * 97;
         ctx.font = '10.5px sans-serif'; ctx.textAlign = 'center';
         ctx.fillStyle = '#7dd3fc';
-        ctx.fillText(iface.name + ' · ' + iface.ip,
-                     S.pos[dev.id].x + side * 78, DEV_Y - 12);
+        ctx.fillText(iface.name, lx, DEV_Y - 20);
+        ctx.fillText(iface.ip, lx, DEV_Y - 8);
       });
     }
   }

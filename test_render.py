@@ -9,7 +9,7 @@ import generate
 
 REPO = Path(__file__).resolve().parent
 # 播放器必须引用到的外壳 DOM id（template.html 与 player.js 的契约）
-SHELL_IDS = ("title", "subtitle", "stage", "stackgrid", "stack-note",
+SHELL_IDS = ("title", "subtitle", "stage", "stacks", "stackgrid", "stack-note",
              "btn-first", "btn-prev", "btn-play", "btn-next", "btn-last",
              "speed", "btn-concept", "counter", "desc", "events",
              "concept-modal", "concept-body", "concept-close")
