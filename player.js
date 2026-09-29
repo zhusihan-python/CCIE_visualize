@@ -505,6 +505,200 @@
     drawArpTables(ctx, st);
   }
 
+  // ---- 交换机星型拓扑（switch 主题专属；整套自绘，不改既有 topic 路径） ----
+
+  const STAR_BOX = { w: 118, h: 62 };
+
+  function drawStarLinks(ctx, st) {
+    const sw = S.pos.SW1;
+    const active = new Set();
+    for (const e of (st.events || [])) {
+      active.add(e.from === 'SW1' ? e.to : e.from);   // 涉及的 PC 口
+    }
+    for (const l of S.links) {
+      const pc = S.pos[l.b];
+      const dx = pc.x - sw.x, dy = pc.y - sw.y;
+      const len = Math.hypot(dx, dy);
+      const ux = dx / len, uy = dy / len;
+      const x1 = sw.x + ux * 34, y1 = sw.y + uy * 34;
+      const x2 = pc.x - ux * 36, y2 = pc.y - uy * 36;
+      const isOn = active.has(l.b);
+      ctx.strokeStyle = isOn ? '#f59e0b' : '#475569';
+      ctx.lineWidth = isOn ? 4 : 3;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      // 端口标注在 SW1 端旁，沿法线偏移
+      const lx = sw.x + ux * 62 - uy * 13;
+      const ly = sw.y + uy * 62 + ux * 13;
+      ctx.font = 'bold 11px "SF Mono", Menlo, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = isOn ? '#fde68a' : '#7dd3fc';
+      ctx.fillText(l.port, lx, ly);
+    }
+  }
+
+  function drawStarDevices(ctx, st) {
+    for (const dev of S.devices) {
+      const p = S.pos[dev.id];
+      const active = st.device === dev.id;
+      const x = p.x - STAR_BOX.w / 2, y = p.y - STAR_BOX.h / 2;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x, y, STAR_BOX.w, STAR_BOX.h, 10);
+      else ctx.rect(x, y, STAR_BOX.w, STAR_BOX.h);
+      ctx.fillStyle = active ? '#1d4ed8' : '#334155';
+      ctx.fill();
+      ctx.lineWidth = active ? 3 : 1.5;
+      ctx.strokeStyle = active ? '#93c5fd' : '#475569';
+      ctx.stroke();
+      drawGlyph(ctx, dev.kind, x + 26, p.y);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(dev.id, x + 46, p.y - 7);
+      ctx.fillStyle = active ? '#bfdbfe' : '#94a3b8';
+      ctx.font = '10.5px sans-serif';
+      ctx.fillText('L' + dev.layer_range[0] + '–L' + dev.layer_range[1] +
+                   ' · ' + KIND_BADGE[dev.kind], x + 46, p.y + 9);
+      ctx.textAlign = 'center';
+      if (dev.kind === 'pc') {
+        ctx.fillStyle = '#94a3b8'; ctx.font = '10.5px sans-serif';
+        ctx.fillText(dev.ip, p.x, p.y + STAR_BOX.h / 2 + 16);
+        ctx.fillText('MAC ' + dev.mac, p.x, p.y + STAR_BOX.h / 2 + 30);
+      } else {
+        ctx.fillStyle = '#7dd3fc'; ctx.font = '10.5px sans-serif';
+        ctx.fillText(dev.label + ' · 只看 MAC，与 IP 无关',
+                     p.x, p.y + STAR_BOX.h / 2 + 16);
+      }
+    }
+  }
+
+  // 星型飞行：2D lerp 沿斜线/垂线滑行；spread 口径与 frame 分支一致
+  function drawStarFlight(ctx, now) {
+    let spread = 0;
+    for (const pk of S.packets) {
+      const base = Math.min(1.35, Math.max(0,
+        (now - S.enterTime) / (PACKET_MS / S.speed) - pk.delay));
+      spread = Math.max(spread, pk.delay + 1);
+      if (base <= 0 || base > 1) continue;
+      const q = lerp(pk.from, pk.to, base);
+      const c = FRAME_HUE[pk.hue] || FRAME_HUE.arp;
+      ctx.beginPath(); ctx.arc(q.x, q.y, 9, 0, Math.PI * 2);
+      ctx.fillStyle = c.fill; ctx.fill();
+      ctx.strokeStyle = c.edge; ctx.lineWidth = 1.5; ctx.stroke();
+      if (pk.label) {
+        ctx.fillStyle = c.text; ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(pk.label, q.x, q.y - 14);
+      }
+    }
+    return spread;
+  }
+
+  // 接收判定胶囊：PC 框下信息的下方（星型专属，随设备 y）
+  function drawStarFlash(ctx, st) {
+    for (const dev of S.devices) {
+      const f = (st.flash || {})[dev.id];
+      if (!f || dev.kind !== 'pc') continue;
+      const p = S.pos[dev.id];
+      const text = (f.ok ? '✓ ' : '✕ ') + f.text;
+      ctx.font = 'bold 10.5px sans-serif';
+      const w = ctx.measureText(text).width + 18;
+      const y = p.y + STAR_BOX.h / 2 + 40;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(p.x - w / 2, y, w, 18, 9);
+      else ctx.rect(p.x - w / 2, y, w, 18);
+      ctx.fillStyle = f.ok ? 'rgba(34,197,94,.16)' : 'rgba(239,68,68,.16)';
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = f.ok ? '#22c55e' : '#ef4444';
+      ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = f.ok ? '#86efac' : '#fca5a5';
+      ctx.fillText(text, p.x, y + 13);
+    }
+  }
+
+  function drawMacTable(ctx, st) {
+    const x0 = 604, w = 332, y0 = 348, h = 132;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, 10);
+    else ctx.rect(x0, y0, w, h);
+    ctx.fillStyle = '#1e293b'; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = '#334155'; ctx.stroke();
+    ctx.textAlign = 'left'; ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText('SW1 的 MAC 地址表', x0 + 12, y0 + 20);
+    ctx.font = '10.5px sans-serif'; ctx.fillStyle = '#64748b';
+    ctx.fillText('MAC 地址', x0 + 16, y0 + 42);
+    ctx.fillText('端口', x0 + 152, y0 + 42);
+    ctx.fillText('类型', x0 + 214, y0 + 42);
+    ctx.fillText('老化', x0 + 268, y0 + 42);
+    ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0 + 12, y0 + 50); ctx.lineTo(x0 + w - 12, y0 + 50);
+    ctx.stroke();
+    const rows = st.mac_table || [];
+    if (!rows.length) {
+      ctx.fillStyle = '#475569'; ctx.font = '11px sans-serif';
+      ctx.fillText('（空——还没学到任何地址）', x0 + 16, y0 + 72);
+      return;
+    }
+    rows.forEach((r, i) => {
+      const y = y0 + 68 + i * 26;
+      if (r.new) {
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x0 + 10, y - 14, w - 20, 22, 6);
+        else ctx.rect(x0 + 10, y - 14, w - 20, 22);
+        ctx.fillStyle = 'rgba(245,158,11,.14)'; ctx.fill();
+        ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+      ctx.font = (r.new ? 'bold ' : '') +
+                 '11px "SF Mono", Menlo, monospace';
+      ctx.fillStyle = r.new ? '#fde68a' : '#86efac';
+      ctx.fillText(r.mac, x0 + 16, y);
+      ctx.fillText(r.port, x0 + 152, y);
+      ctx.fillStyle = '#94a3b8'; ctx.font = '10.5px sans-serif';
+      ctx.fillText(r.type, x0 + 214, y);
+      ctx.fillText(r.age, x0 + 268, y);
+    });
+  }
+
+  function drawSwitchBottom(ctx, st) {
+    ctx.textAlign = 'left'; ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('当前帧 · 字段展开', 24, 326);
+    ctx.textAlign = 'right'; ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText(st.pdu_name, W - 24, 326);
+    const rows = st.fields || [];
+    if (!rows.length) {
+      ctx.textAlign = 'center'; ctx.font = '13px sans-serif';
+      ctx.fillStyle = '#475569';
+      ctx.fillText(st.kind === 'initial' ? '（帧尚未出现——点 ▶ 或 → 开始）'
+                                         : '（通信完成——可回看任意一步）',
+                   302, 430);
+    } else {
+      const x0 = 24, w = 556, y0 = 348, rh = 26;
+      rows.forEach((f, i) => {
+        const y = y0 + i * rh;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x0, y, w, rh - 4, 6);
+        else ctx.rect(x0, y, w, rh - 4);
+        ctx.fillStyle = f.hot ? 'rgba(245,158,11,.14)' : '#263449';
+        ctx.fill();
+        ctx.lineWidth = f.hot ? 1.8 : 1.2;
+        ctx.strokeStyle = f.hot ? '#facc15' : '#334155';
+        ctx.stroke();
+        ctx.textAlign = 'left'; ctx.font = '11.5px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(f.k, x0 + 12, y + 16);
+        ctx.textAlign = 'right'; ctx.font = 'bold 11.5px sans-serif';
+        ctx.fillStyle = { bcast: '#f87171', uni: '#4ade80',
+                          unk: '#fbbf24' }[f.tone] || '#e2e8f0';
+        ctx.fillText(f.v, x0 + w - 12, y + 16);
+      });
+    }
+    drawMacTable(ctx, st);
+  }
+
   // ---- 飞行动画（encap 比特流 / troubleshoot ping / arp 总线帧） ----------
 
   function drawPingDot(ctx, q, label) {
@@ -575,9 +769,18 @@
     const ctx = S.ctx;
     ctx.clearRect(0, 0, W, H);
     const st = S.steps[S.cur];
-    if (S.arp) { drawBus(ctx, st); } else { drawLinks(ctx, st); }
-    drawDevices(ctx, st);
-    if (S.arp) {
+    if (S.star) {
+      drawStarLinks(ctx, st);
+    } else if (S.arp) {
+      drawBus(ctx, st);
+    } else {
+      drawLinks(ctx, st);
+    }
+    if (S.star) { drawStarDevices(ctx, st); } else { drawDevices(ctx, st); }
+    if (S.star) {
+      drawSwitchBottom(ctx, st);
+      drawStarFlash(ctx, st);
+    } else if (S.arp) {
       drawArpBottom(ctx, st);
       drawFlash(ctx, st);
     } else if (S.DATA.topic === 'troubleshoot') {
@@ -586,7 +789,7 @@
       drawPdu(ctx, st);
     }
     if (S.packets.length) {
-      const spread = drawFlight(ctx, now);
+      const spread = S.star ? drawStarFlight(ctx, now) : drawFlight(ctx, now);
       if (S.playing &&
           now > S.enterTime + ((1 + spread) * PACKET_MS + HOLD_MS) / S.speed) {
         advance();
@@ -766,6 +969,16 @@
     // 帧粒子（kind=frame）沿 busY 飞行
     S.arp = data.topic === 'arp';
     S.busY = S.arp ? 64 : 0;
+
+    // switch 主题：星型布局（SW1 居中上方、三 PC 下方），整套星型专属
+    // 渲染（设备/斜线链路/端口标注/2D 飞行/胶囊）读取各自 pos 的 x 与 y
+    S.star = data.topic === 'switch';
+    if (S.star) {
+      S.pos = { SW1: { x: 480, y: 96 },
+                PC1: { x: 150, y: 224 },
+                PC2: { x: 480, y: 248 },
+                PC3: { x: 820, y: 224 } };
+    }
 
     // 按 topic 切换画布/终端布局与面板：PDU 图例仅 encap、分层面板仅 ios 隐藏
     const isIos = data.topic === 'ios';

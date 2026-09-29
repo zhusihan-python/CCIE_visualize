@@ -17,6 +17,7 @@ import arp
 import concepts
 import encap
 import ios
+import switch
 import troubleshoot
 
 TEMPLATE_PATH = Path(__file__).with_name("template.html")
@@ -73,6 +74,16 @@ TOPICS = {
                            "conflict": "arp-conflict.html"},
         "build": arp.simulate,
     },
+    "switch": {
+        "scenarios": switch.SCENARIOS,
+        "titles": {
+            "learn": "以太网交换机 · MAC 学习与三种转发",
+            "aging": "以太网交换机 · MAC 表老化与重学习",
+        },
+        "default_output": {"learn": "switch.html",
+                           "aging": "switch-aging.html"},
+        "build": switch.simulate,
+    },
 }
 
 
@@ -84,6 +95,8 @@ def _subtitle(topic, result):
         return f"{len(result.steps)} 步 · 自底向上逐层排查 · 设备链 {chain_ids}"
     if topic == "arp":
         return f"{len(result.steps)} 步 · ARP 地址解析 · 共享总线广播域"
+    if topic == "switch":
+        return f"{len(result.steps)} 步 · MAC 学习与转发行为 · 星型广播域"
     return f"{len(result.steps)} 步 · 设备链 {chain_ids}"
 
 
@@ -176,6 +189,10 @@ def main(argv=None) -> None:
         print(f"  steps={len(result.steps)} "
               f"broadcasts={len(result.fanout_steps)} "
               f"table_writes={result.table_writes}")
+    elif args.topic == "switch":
+        print(f"  steps={len(result.steps)} "
+              f"floods={len(result.flood_steps)} "
+              f"learns={len(result.learn_steps)}")
     else:
         print(f"  steps={len(result.steps)} "
               f"pdu={' → '.join(result.sender_pdu_names)} "

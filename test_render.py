@@ -126,6 +126,25 @@ class CliTests(unittest.TestCase):
             self.assertIn("16 步", html)
             self.assertIn('"dev_ip"', html)
 
+    def test_cli_switch_two_scenarios(self):
+        for scenario, title, name, steps in (
+            ("learn", "以太网交换机 · MAC 学习与三种转发", "switch.html",
+             "17 步"),
+            ("aging", "以太网交换机 · MAC 表老化与重学习", "switch-aging.html",
+             "11 步"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / name
+                generate.main(["-p", "switch", "-t", scenario,
+                               "-o", str(out)])
+                html = out.read_text(encoding="utf-8")
+                self.assertNotIn("__DATA__", html)
+                self.assertIn(title, html)
+                self.assertIn('"topic": "switch"', html)
+                self.assertIn(steps, html)
+                self.assertIn('"id": "SW1"', html)
+                self.assertIn('"port": "g0/3"', html)
+
     def test_cli_default_output_names(self):
         # 默认输出名按 TOPICS 映射（encap→encap.html，troubleshoot→cable）
         with tempfile.TemporaryDirectory() as tmp:

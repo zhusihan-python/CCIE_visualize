@@ -17,6 +17,8 @@ python3 generate.py -p ios -t save                 # IOS·配置保存
 python3 generate.py -p ios -t passwords            # IOS·双密码关卡
 python3 generate.py -p arp                         # ARP·首次通信全流程 -> arp.html
 python3 generate.py -p arp -t conflict             # ARP·免费 ARP 与 IP 冲突 -> arp-conflict.html
+python3 generate.py -p switch                      # 交换机·MAC 学习与三种转发 -> switch.html
+python3 generate.py -p switch -t aging             # 交换机·MAC 表老化与重学习
 python3 generate.py --json doc.json                # 同时导出原始步骤数据
 open encap.html                                    # 双击打开也行，无需服务器
 ```
@@ -96,6 +98,22 @@ open encap.html                                    # 双击打开也行，无需
 网卡接收判定（✓ 收下 / ✕ 丢弃——MAC 过滤就是以太网寻址）；⚠ 徽章 =
 IP 冲突告警（conflict 场景，告警—修复区间持续）。
 
+## 内容五：以太网交换机工作原理（第 05 课 · `-p switch`）
+
+星型拓扑：SW1 居中（g0/1–g0/3 接三台 PC），右下是 **SW1 的 MAC 地址表**
+（MAC/端口/类型/老化，新行高亮；VLAN 列按课程进度隐藏）。两场景——
+
+- `-t learn`（默认，17 步）：MAC 学习 → 未知单播泛洪 → 精准转发的完整
+  闭环，含**广播 beat**（ARP 广播帧不查表直接泛洪——泛洪的两种触发同屏
+  对照）。核心画面：同样的交换机，未知时泛洪两份、已知时专送一份；学得
+  越多、打扰越少。
+- `-t aging`（11 步）：⏩ 时间快进看老化计时 300→0、表项删除；再 ping 时
+  **PC 的 ARP 表还在、交换机的 MAC 表空了**（两张不同的表）；泛洪重现、
+  重学习闭环，收束作业 2 三问与「不建议改老化时间」的五条理由。
+
+画布语义（switch）：斜线链路 = 端口连线（活跃端口琥珀高亮 + g0/x 标注）；
+天蓝粒子 = ICMP 帧、琥珀粒子 = ARP 帧（沿斜线 2D 飞行，泛洪不回入口端口）。
+
 ## 代码结构
 
 | 文件 | 职责 |
@@ -104,6 +122,7 @@ IP 冲突告警（conflict 场景，告警—修复区间持续）。
 | `troubleshoot.py` | 分层排错故事生成器（纯逻辑）：三故障场景、检查清单快照、ping 事件 |
 | `ios.py` | IOS 基础操作故事生成器（纯逻辑）：三场景终端回放、模式状态机、files/pw 面板快照 |
 | `arp.py` | ARP 地址解析故事生成器（纯逻辑）：共享总线拓扑、广播/单播事件、帧字段与 ARP 表快照 |
+| `switch.py` | 以太网交换机故事生成器（纯逻辑）：星型拓扑端口表、MAC 地址表快照、泛洪/精准转发事件 |
 | `concepts.py` | 「📖 原理」卡内容与分场景看点（按 topic 注册） |
 | `generate.py` | CLI 与 `build_document()` 统一入口；`TOPICS` 映射收口场景/标题/输出名；模板占位符替换出单文件 HTML |
 | `template.html` | 页面外壳 + 三列分层对照面板（`__DATA__` / `/*__PLAYER__*/` 双占位符） |
@@ -128,6 +147,10 @@ IP 冲突告警（conflict 场景，告警—修复区间持续）。
 - conflict 的防守性免费 ARP 由 PC2 主动发起，为教学示意（真实栈多为自动
   或重配触发，行为多样）；PC3 收到应答/广播后的表操作各实现不一，故事中
   不表现（PC3 表全程空，测试固化）。
+- switch 场景按课程进度**不展开 VLAN 维度**（MAC 表不显示 VLAN 列）；
+  丢弃行为（同端口异常帧）未演，见原理卡口诀；老化用步进快照呈现
+  （⏩ 时间快进，不真实计时）；aging 场景中 PC 的 ARP 表比交换机 MAC 表
+  「活得久」为教学示意（两者老化机制独立）。
 - 防火墙（L3–L7）、AC/AP 等设备只在原理卡中以「设备看层」词条出现，
   不进入故事拓扑。
 - 排错场景的 ping 动画与检查项为教学示意：真实环境中「错网段」的表现是
@@ -141,6 +164,6 @@ IP 冲突告警（conflict 场景，告警—修复区间持续）。
 ## 测试
 
 ```bash
-python3 -m unittest test_encap test_concepts test_render test_troubleshoot test_ios test_arp
+python3 -m unittest test_encap test_concepts test_render test_troubleshoot test_ios test_arp test_switch
 ```
 
