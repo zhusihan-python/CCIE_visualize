@@ -58,13 +58,16 @@
     flex-direction: column; gap: 8px;
   }
   #stacks h3 { margin: 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .stackhead {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;
+  }
+  .stackhead .sh {
+    font-size: 11.5px; color: var(--muted); text-align: center;
+    padding-bottom: 2px;
+  }
   .stackgrid {
     display: grid; grid-template-columns: 1fr 1fr 1fr;
     grid-template-rows: repeat(7, minmax(38px, auto)); gap: 4px; flex: 1;
-  }
-  .stackgrid .sh {
-    font-size: 11.5px; color: var(--muted); text-align: center;
-    align-self: end; padding-bottom: 2px;
   }
   .stackgrid .cell {
     border: 1px solid var(--border); border-radius: 7px;
@@ -165,11 +168,12 @@
     </div>
     <aside id="stacks">
       <h3>分层对照 · 当前步高亮（点击看作用）</h3>
-      <div class="stackgrid" id="stackgrid">
+      <div class="stackhead">
         <div class="sh">OSI 七层</div>
         <div class="sh">TCP/IP 对等 5 层</div>
         <div class="sh">TCP/IP 4 层</div>
-
+      </div>
+      <div class="stackgrid" id="stackgrid">
         <div class="cell" style="grid-column:1; grid-row:1" data-layers="7"
              data-note="第 7 层 · 应用层：为应用程序提供网络服务（浏览器、邮件、FTP、DNS）。OSI 5–7 层在 TCP/IP 中合并为应用层"><b>7</b>应用层</div>
         <div class="cell" style="grid-column:1; grid-row:2" data-layers="6"
