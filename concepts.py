@@ -47,26 +47,82 @@ ENCAPE = {
     ],
 }
 
-SCENARIO_NOTES = {
-    "cross-net": (
-        "场景看点：跨网段（PC1 → 网关 R1 → PC2）。盯住两件事：① IP 头的"
-        " 源/目的从 PC1 写入后直到 PC2 都不变；② 每经过一台路由器，以太网"
-        " 头的 MAC 就被改写一次（R1 拆帧重建帧是全场核心）。交换机全程只看"
-        " 二层、不碰帧内容。"
+TROUBLESHOOT = {
+    "title": "分层排错 · 自底向上定位故障核心思路",
+    "problem": (
+        "「网页打不开」的原因可能藏在任何一层：网线断了、MAC/VLAN 不对、"
+        "IP 配错、路由缺失、服务本身没起。没有方法论时只能乱猜——而医生"
+        "不会一上来就检查所有器官：网络工程师也应该一层一层排查。"
     ),
-    "same-net": (
-        "场景看点：同网段（PC1 → SW1 → PC2）。全程没有路由器：目的 MAC "
-        "一开始就写 PC2，端到端不变，没有任何设备重写帧头。与跨网段场景"
-        " 对照——「MAC 每跳变」只在跨网段时发生（由路由器改写）。"
+    "idea": (
+        "按层分诊、自底向上：1️⃣物理（网线/接口灯）→ 2️⃣链路"
+        "（MAC/VLAN）→ 3️⃣网络（IP/路由）→ 4️⃣应用（服务/端口）。"
+        "每层检查要么「通过」——排除该层、继续向上；要么「失败」——"
+        "定位故障层，修复后从故障层开始验证。每一层的「通过」都在收窄"
+        "范围，让你有资格怀疑下一层；故障位置越低，越早被拦下。"
     ),
+    "rules": [
+        "排错顺序：先物理层（网线、接口灯）→ 链路层（MAC、VLAN）→ "
+        "网络层（IP、路由）→ 最后应用层——先易后难、先底后顶",
+        "ping 的分层含义：ping 通 = L1–L3 全通（ICMP 请求能往返）；"
+        "ping 不通 = 故障在 L1–L3 之内，或对端不响应",
+        "ping 通 ≠ 应用正常：路通不等于服务活——传输/应用层要用端口"
+        "连接（如 telnet 80）与服务状态来验证",
+        "每层有自己的检查工具：网口灯/换线（L1）、MAC 地址表/接口状态"
+        "（L2）、ipconfig/ping/路由表（L3）、telnet 端口/服务状态（L4·L7）",
+        "通过=排除，失败=定位：修复永远修在故障层，验证从故障层开始向上",
+    ],
+    "glossary": [
+        ["ping（你在吗）", "ICMP 回显请求/应答——探路工具：能往返说明 L1–L3 路径通"],
+        ["排除法", "低层检查通过即排除该层，故障范围逐层收窄"],
+        ["分诊", "医院看病的类比：按流程一步步排查，而不是全身扫描"],
+        ["down / 接口 up", "链路中断 / 链路协商正常——物理层与链路层的第一现场"],
+        ["监听端口", "服务等待连接的门牌号（如 HTTP=80）；连接被拒说明无人监听"],
+    ],
 }
 
-_DEFAULT_SCENARIO = "cross-net"
+CARDS = {"encap": ENCAPE, "troubleshoot": TROUBLESHOOT}
+
+SCENARIO_NOTES = {
+    "encap": {
+        "cross-net": (
+            "场景看点：跨网段（PC1 → 网关 R1 → PC2）。盯住两件事：① IP 头的"
+            " 源/目的从 PC1 写入后直到 PC2 都不变；② 每经过一台路由器，以太网"
+            " 头的 MAC 就被改写一次（R1 拆帧重建帧是全场核心）。交换机全程只看"
+            " 二层、不碰帧内容。"
+        ),
+        "same-net": (
+            "场景看点：同网段（PC1 → SW1 → PC2）。全程没有路由器：目的 MAC "
+            "一开始就写 PC2，端到端不变，没有任何设备重写帧头。与跨网段场景"
+            " 对照——「MAC 每跳变」只在跨网段时发生（由路由器改写）。"
+        ),
+    },
+    "troubleshoot": {
+        "cable": (
+            "场景看点：物理层故障（PC1–SW1 网线中断）。看红 ✕ 链路从第一步"
+            " 就可见、L1 检查一次命中——自底向上对低层故障最快；换线后红 ✕ "
+            " 消失，「复查 + 终验」两步闭环。"
+        ),
+        "ip-config": (
+            "场景看点：网络层故障（PC1 被配成 192.168.3.10 错网段）。前两层"
+            " 逐一通过被排除、第三站才命中——排除法收窄范围的完整过程；"
+            " ping 网关在半路跌落是教学示意（真实表现为 ARP 解析失败或超时）。"
+        ),
+        "service": (
+            "场景看点：应用层故障（PC2 的 HTTP 服务未启动）。最精彩的是 L3 "
+            " 检查：ping PC2 往返成功，一次性排除 L1–L3 三层——随后 telnet "
+            " 80 被拒把矛头指向服务本身：ping 通 ≠ 应用好。"
+        ),
+    },
+}
+
+_DEFAULT_SCENARIO = {"encap": "cross-net", "troubleshoot": "cable"}
 
 
 def for_topic(topic: str, scenario: str) -> dict:
     """返回带场景看点的原理卡 dict（浅拷贝，不污染静态内容）。"""
-    if topic != "encap":
+    if topic not in CARDS:
         raise ValueError(f"unknown topic: {topic!r}")
-    note = SCENARIO_NOTES.get(scenario, SCENARIO_NOTES[_DEFAULT_SCENARIO])
-    return dict(ENCAPE, scenario=note)
+    notes = SCENARIO_NOTES[topic]
+    note = notes.get(scenario, notes[_DEFAULT_SCENARIO[topic]])
+    return dict(CARDS[topic], scenario=note)

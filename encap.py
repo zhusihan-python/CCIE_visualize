@@ -79,6 +79,7 @@ class Device:
 class Link:
     a: str
     b: str
+    state: str = None       # 仅故障链路使用（"down"）；正常链路不序列化该键
 
 
 @dataclass
@@ -100,7 +101,10 @@ class Chain:
                 }
                 for d in self.devices
             ],
-            "links": [{"a": l.a, "b": l.b} for l in self.links],
+            "links": [
+                {"a": l.a, "b": l.b, **({"state": l.state} if l.state else {})}
+                for l in self.links
+            ],
         }
 
 

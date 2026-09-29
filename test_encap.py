@@ -186,6 +186,14 @@ class DocumentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             generate.build_document("stp", "cross-net")
 
+    def test_links_serialize_without_state_key(self):
+        # 正常链路的序列化恰为 {a, b} 两键——排错场景的 state 键只在该链
+        # 路 down 时出现，encap 不得携带
+        for scenario in encap.SCENARIOS:
+            document, _ = generate.build_document("encap", scenario)
+            for link in document["chain"]["links"]:
+                self.assertEqual(set(link.keys()), {"a", "b"}, scenario)
+
 
 if __name__ == "__main__":
     unittest.main()

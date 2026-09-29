@@ -47,5 +47,28 @@ class ConceptTests(unittest.TestCase):
         self.assertNotIn("scenario", concepts.ENCAPE)
 
 
+class TroubleshootConceptTests(unittest.TestCase):
+    def test_schema_keys(self):
+        card = concepts.for_topic("troubleshoot", "cable")
+        for key in ("title", "problem", "idea", "rules", "glossary", "scenario"):
+            self.assertIn(key, card)
+            self.assertTrue(card[key])
+        self.assertGreaterEqual(len(card["rules"]), 3)
+        self.assertGreaterEqual(len(card["glossary"]), 3)
+
+    def test_scenario_notes_differ_and_prefixed(self):
+        notes = [concepts.for_topic("troubleshoot", s)["scenario"]
+                 for s in ("cable", "ip-config", "service")]
+        for note in notes:
+            self.assertIn("场景看点", note)
+        self.assertEqual(len(set(notes)), 3)
+
+    def test_unknown_scenario_falls_back_to_cable(self):
+        card = concepts.for_topic("troubleshoot", "bogus")
+        self.assertEqual(
+            card["scenario"],
+            concepts.for_topic("troubleshoot", "cable")["scenario"])
+
+
 if __name__ == "__main__":
     unittest.main()

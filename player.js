@@ -40,12 +40,13 @@
     S.cur = Math.max(0, Math.min(S.steps.length - 1, i));
     S.enterTime = performance.now();
     const st = S.steps[S.cur];
-    if (st.kind === 'move') {
-      const e = st.events[0];
-      S.packets = [{ from: S.pos[e.from], to: S.pos[e.to], delay: 0 }];
-    } else {
-      S.packets = [];
-    }
+    // 任何带 events 的步骤都生成飞行粒子（encap 的 move 比特流、
+    // troubleshoot 的 ping 往返/跌落），播放器不再按 kind 特判
+    S.packets = (st.events || []).map(e => ({
+      from: S.pos[e.from], to: S.pos[e.to],
+      delay: e.delay || 0, kind: e.kind || 'bits',
+      drop: e.drop, label: e.label,
+    }));
     renderPanels();
     updateButtons();
   }
@@ -82,6 +83,14 @@
 
   function lerp(p1, p2, t) {
     return { x: p1.x + (p2.x - p1.x) * t, y: p1.y + (p2.y - p1.y) * t };
+  }
+
+  function drawX(ctx, at, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(at.x - 7, at.y - 7); ctx.lineTo(at.x + 7, at.y + 7);
+    ctx.moveTo(at.x + 7, at.y - 7); ctx.lineTo(at.x - 7, at.y + 7);
+    ctx.stroke();
   }
 
   // ---- 设备链绘制 ------------------------------------------------------
@@ -127,17 +136,24 @@
 
   function drawLinks(ctx, st) {
     const moving = st.kind === 'move' ? st.events[0] : null;
+    const down = new Set(st.down_links || []);
     for (const l of S.links) {
       const p1 = S.pos[l.a], p2 = S.pos[l.b];
-      const active = moving &&
+      const isDown = down.has(l.a + '-' + l.b);
+      const active = !isDown && moving &&
         ((moving.from === l.a && moving.to === l.b) ||
          (moving.from === l.b && moving.to === l.a));
-      ctx.strokeStyle = active ? '#f59e0b' : '#475569';
-      ctx.lineWidth = active ? 4 : 3;
+      ctx.strokeStyle = isDown ? '#b91c1c' : active ? '#f59e0b' : '#475569';
+      ctx.lineWidth = isDown ? 2.5 : active ? 4 : 3;
+      if (isDown) ctx.setLineDash([4, 6]);
       ctx.beginPath();
       ctx.moveTo(p1.x + BOX_W / 2 + 3, DEV_Y);
       ctx.lineTo(p2.x - BOX_W / 2 - 3, DEV_Y);
       ctx.stroke();
+      ctx.setLineDash([]);
+      if (isDown) {
+        drawX(ctx, { x: (p1.x + p2.x) / 2, y: DEV_Y }, '#ef4444');
+      }
     }
     // 路由器接口标注：按邻接链路的左右顺序对应 interfaces
     for (const dev of S.devices) {
@@ -160,6 +176,7 @@
   }
 
   function drawDevices(ctx, st) {
+    const alerts = new Set(st.alert_devices || []);
     for (const dev of S.devices) {
       const p = S.pos[dev.id];
       const active = st.device === dev.id;
@@ -172,6 +189,12 @@
       ctx.lineWidth = active ? 3 : 1.5;
       ctx.strokeStyle = active ? '#93c5fd' : '#475569';
       ctx.stroke();
+
+      if (alerts.has(dev.id)) {
+        ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText('⚠', p.x + BOX_W / 2 - 6, y - 6);
+      }
 
       drawGlyph(ctx, dev.kind, x + 26, DEV_Y);
       ctx.textAlign = 'left';
@@ -265,14 +288,86 @@
     ctx.fillText('物理层视角：帧已变成比特流（电/光信号）', W / 2, by + bh + 22);
   }
 
-  // ---- 比特飞行（move 步动画） -----------------------------------------
+  // ---- 排错检查清单（troubleshoot 主题的下半画布） ----------------------
 
-  function drawBitsFlight(ctx, now) {
-    let maxDelay = 0;
-    for (const pk of S.packets) maxDelay = Math.max(maxDelay, pk.delay);
+  function drawChecklist(ctx, st) {
+    ctx.textAlign = 'left'; ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('排错检查清单（自底向上）', 24, 318);
+    ctx.textAlign = 'right'; ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText(st.layer ? '排错 · 第 ' + st.layer + ' 层' : '排错 · 待分诊',
+                 W - 24, 322);
+
+    const rows = st.checks || [];
+    const x0 = 48, w = W - 96, rh = 54, gap = 10, y0 = 348;
+    rows.forEach((c, i) => {
+      const y = y0 + i * (rh + gap);
+      const active = st.layer === c.layer &&
+                     st.kind !== 'symptom' && st.kind !== 'final';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x0, y, w, rh, 9);
+      else ctx.rect(x0, y, w, rh);
+      ctx.fillStyle = c.verdict === 'fail' ? '#450a0a'
+                    : active ? '#1e3a8a' : '#263449';
+      ctx.fill();
+      ctx.lineWidth = active ? 3 : 1.5;
+      ctx.strokeStyle = c.verdict === 'fail' ? '#ef4444'
+                      : active ? '#93c5fd' : '#334155';
+      ctx.stroke();
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.verdict === 'fail' ? '#fca5a5' : '#e2e8f0';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(c.name, x0 + 16, y + 22);
+      ctx.fillStyle = '#94a3b8'; ctx.font = '11.5px sans-serif';
+      ctx.fillText(c.detail, x0 + 16, y + 41);
+      ctx.textAlign = 'right';
+      if (c.verdict === 'pass') {
+        ctx.fillStyle = '#4ade80'; ctx.font = 'bold 14px sans-serif';
+        ctx.fillText('✓ 通过', x0 + w - 16, y + 33);
+      } else if (c.verdict === 'fail') {
+        ctx.fillStyle = '#f87171'; ctx.font = 'bold 14px sans-serif';
+        ctx.fillText('✗ 失败', x0 + w - 16, y + 33);
+      } else {
+        ctx.fillStyle = '#64748b'; ctx.font = '13px sans-serif';
+        ctx.fillText('· 未查', x0 + w - 16, y + 33);
+      }
+    });
+  }
+
+  // ---- 飞行动画（encap 比特流 / troubleshoot ping 两态） -----------------
+
+  function drawPingDot(ctx, q, label) {
+    ctx.beginPath(); ctx.arc(q.x, DEV_Y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = '#f59e0b'; ctx.fill();
+    ctx.strokeStyle = '#78350f'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = '#fde68a'; ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(label || 'ping', q.x, DEV_Y - 14);
+  }
+
+  function drawFlight(ctx, now) {
+    let spread = 0;
     for (const pk of S.packets) {
-      const base = Math.min(1, Math.max(0,
+      const base = Math.min(1.35, Math.max(0,
         (now - S.enterTime) / (PACKET_MS / S.speed) - pk.delay));
+      if (pk.kind === 'ping') {
+        spread = Math.max(spread, pk.delay + (pk.drop !== undefined ? pk.drop : 1));
+        if (base <= 0) continue;
+        if (pk.drop !== undefined) {
+          // 失败版：行至 drop 比例处停住，红 ✕ 持续显示（可截图验证）
+          if (base < pk.drop) {
+            drawPingDot(ctx, lerp(pk.from, pk.to, base), pk.label);
+          } else {
+            drawX(ctx, lerp(pk.from, pk.to, pk.drop), '#ef4444');
+          }
+        } else if (base <= 1) {
+          drawPingDot(ctx, lerp(pk.from, pk.to, base), pk.label);
+        }
+        continue;
+      }
+      // 比特流（encap move）：一串 1/0 尾迹
+      spread = Math.max(spread, pk.delay + (BIT_COUNT - 1) * BIT_GAP);
       for (let k = 0; k < BIT_COUNT; k++) {
         const t = base - k * BIT_GAP;
         if (t <= 0 || t >= 1) continue;
@@ -287,7 +382,7 @@
         ctx.fillText(label, q.x, DEV_Y + 3.5);
       }
     }
-    return maxDelay + (BIT_COUNT - 1) * BIT_GAP;
+    return spread;
   }
 
   function draw(now) {
@@ -297,9 +392,13 @@
     const st = S.steps[S.cur];
     drawLinks(ctx, st);
     drawDevices(ctx, st);
-    drawPdu(ctx, st);
-    if (st.kind === 'move') {
-      const spread = drawBitsFlight(ctx, now);
+    if (S.DATA.topic === 'troubleshoot') {
+      drawChecklist(ctx, st);
+    } else {
+      drawPdu(ctx, st);
+    }
+    if (S.packets.length) {
+      const spread = drawFlight(ctx, now);
       if (S.playing &&
           now > S.enterTime + ((1 + spread) * PACKET_MS + HOLD_MS) / S.speed) {
         advance();
@@ -400,6 +499,11 @@
     S.devices.forEach((d, i) => {
       S.pos[d.id] = { x: 90 + i * (W - 180) / (N - 1), y: DEV_Y };
     });
+
+    // PDU 色块图例只对 encap 主题有意义
+    const legend = document.querySelector('div.legend.pdu-legend');
+    if (legend) legend.style.display =
+      data.topic === 'troubleshoot' ? 'none' : '';
 
     bindControls();
     bindStacks();

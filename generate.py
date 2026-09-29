@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Generate a self-contained encapsulation-animation HTML file.
+"""Generate a self-contained step-animation HTML file (CCNA visualizer).
 
 Examples:
-    python3 generate.py                                # cross-net -> encap.html
-    python3 generate.py -t same-net -o encap-same.html # 同网段对照场景
+    python3 generate.py                                   # encap cross-net
+    python3 generate.py -t same-net                       # encap 同网段
+    python3 generate.py -p troubleshoot                   # 排错·网线中断
+    python3 generate.py -p troubleshoot -t service        # 排错·服务未启动
     python3 generate.py --json doc.json
 """
 
@@ -13,32 +15,68 @@ from pathlib import Path
 
 import concepts
 import encap
+import troubleshoot
 
 TEMPLATE_PATH = Path(__file__).with_name("template.html")
 PLAYER_PATH = Path(__file__).with_name("player.js")
 DATA_PLACEHOLDER = "__DATA__"
 PLAYER_PLACEHOLDER = "/*__PLAYER__*/"
 
-SCENARIO_TITLES = {
-    "cross-net": "封装与解封装 · 跨网段场景",
-    "same-net": "封装与解封装 · 同网段场景",
+# 每个 topic 的场景表、标题与默认输出名统一收口在此
+TOPICS = {
+    "encap": {
+        "scenarios": encap.SCENARIOS,
+        "titles": {
+            "cross-net": "封装与解封装 · 跨网段场景",
+            "same-net": "封装与解封装 · 同网段场景",
+        },
+        "default_output": {"cross-net": "encap.html", "same-net": "encap-same.html"},
+        "build": encap.simulate,
+    },
+    "troubleshoot": {
+        "scenarios": troubleshoot.SCENARIOS,
+        "titles": {
+            "cable": "分层排错 · 物理层故障（网线中断）",
+            "ip-config": "分层排错 · 网络层故障（IP 错配）",
+            "service": "分层排错 · 应用层故障（服务未启动）",
+        },
+        "default_output": {
+            "cable": "troubleshoot.html",
+            "ip-config": "troubleshoot-ip.html",
+            "service": "troubleshoot-service.html",
+        },
+        "build": troubleshoot.simulate,
+    },
 }
 
 
-def build_document(topic: str = "encap", scenario: str = "cross-net"):
+def _subtitle(topic, result):
+    chain_ids = " → ".join(result.chain.ids())
+    if topic == "troubleshoot":
+        return f"{len(result.steps)} 步 · 自底向上逐层排查 · 设备链 {chain_ids}"
+    return f"{len(result.steps)} 步 · 设备链 {chain_ids}"
+
+
+def build_document(topic: str = "encap", scenario: str = None):
     """Run the story builder and return (embedded document, result).
 
     Shared by the CLI and the tests, mirroring the stpAlgorithmVisualizer
     convention."""
-    if topic != "encap":
-        raise ValueError(f"unknown topic: {topic!r}")
-    result = encap.simulate(scenario)
-    chain_ids = " → ".join(result.chain.ids())
+    if topic not in TOPICS:
+        raise ValueError(f"unknown topic: {topic!r} "
+                         f"(choose from {', '.join(TOPICS)})")
+    spec = TOPICS[topic]
+    if scenario is None:
+        scenario = spec["scenarios"][0]
+    if scenario not in spec["scenarios"]:
+        raise ValueError(f"unknown scenario: {scenario!r} for topic {topic!r} "
+                         f"(choose from {', '.join(spec['scenarios'])})")
+    result = spec["build"](scenario)
     document = {
         "topic": topic,
         "scenario": scenario,
-        "title": SCENARIO_TITLES[scenario],
-        "subtitle": f"{len(result.steps)} 步 · 设备链 {chain_ids}",
+        "title": spec["titles"][scenario],
+        "subtitle": _subtitle(topic, result),
         "chain": result.chain.serialize(),
         "concept": concepts.for_topic(topic, scenario),
         "steps": result.steps,
@@ -64,26 +102,30 @@ def render_html(document: dict, template: str, player_js: str = None) -> str:
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "-p", "--topic", choices=("encap",), default="encap",
+        "-p", "--topic", choices=tuple(TOPICS), default="encap",
         help="visualization topic (default: encap)",
     )
     parser.add_argument(
-        "-t", "--scenario", choices=encap.SCENARIOS, default="cross-net",
-        help="story scenario (default: cross-net)",
+        "-t", "--scenario", default=None,
+        help="story scenario (default: encap→cross-net, troubleshoot→cable)",
     )
     parser.add_argument(
         "-o", "--output", default=None,
-        help="output HTML file (default: encap.html / encap-same.html)",
+        help="output HTML file (default: per-topic/scenario name, see TOPICS)",
     )
     parser.add_argument(
         "--json", metavar="FILE",
         help="also dump the raw step data as JSON",
     )
     args = parser.parse_args(argv)
-    output = args.output or ("encap.html" if args.scenario == "cross-net"
-                             else "encap-same.html")
+    spec = TOPICS[args.topic]
+    if args.scenario is not None and args.scenario not in spec["scenarios"]:
+        parser.error(f"-t/--scenario must be one of: "
+                     f"{', '.join(spec['scenarios'])} (for topic {args.topic!r})")
+    scenario = args.scenario or spec["scenarios"][0]
+    output = args.output or spec["default_output"][scenario]
 
-    document, result = build_document(args.topic, args.scenario)
+    document, result = build_document(args.topic, scenario)
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     Path(output).write_text(render_html(document, template), encoding="utf-8")
     if args.json:
@@ -92,12 +134,16 @@ def main(argv=None) -> None:
             encoding="utf-8")
 
     print(f"written: {output}")
-    print(f"  topic={args.topic} scenario={args.scenario} "
+    print(f"  topic={args.topic} scenario={scenario} "
           f"devices={len(result.chain.devices)} "
           f"links={len(result.chain.links)}")
-    print(f"  steps={len(result.steps)} "
-          f"pdu={' → '.join(result.sender_pdu_names)} "
-          f"mac_rewrites={result.mac_rewrites}")
+    if args.topic == "troubleshoot":
+        print(f"  steps={len(result.steps)} fault=L{result.fault_layer} "
+              f"checks_until_hit={result.checks_until_hit}")
+    else:
+        print(f"  steps={len(result.steps)} "
+              f"pdu={' → '.join(result.sender_pdu_names)} "
+              f"mac_rewrites={result.mac_rewrites}")
     if args.json:
         print(f"written: {args.json}")
 

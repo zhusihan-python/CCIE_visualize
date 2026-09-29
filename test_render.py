@@ -71,6 +71,33 @@ class CliTests(unittest.TestCase):
         self.assertIn("12 步", html)
         self.assertNotIn('"id": "R1"', html)
 
+    def test_cli_troubleshoot_three_scenarios(self):
+        for scenario, title, name in (
+            ("cable", "分层排错 · 物理层故障", "troubleshoot.html"),
+            ("ip-config", "分层排错 · 网络层故障", "troubleshoot-ip.html"),
+            ("service", "分层排错 · 应用层故障", "troubleshoot-service.html"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / name
+                generate.main(["-p", "troubleshoot", "-t", scenario,
+                               "-o", str(out)])
+                html = out.read_text(encoding="utf-8")
+                self.assertNotIn("__DATA__", html)
+                self.assertIn(title, html)
+                self.assertIn('"topic": "troubleshoot"', html)
+
+    def test_cli_default_output_names(self):
+        # 默认输出名按 TOPICS 映射（encap→encap.html，troubleshoot→cable）
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path.cwd()
+            try:
+                import os
+                os.chdir(tmp)
+                generate.main(["-p", "troubleshoot"])
+                self.assertTrue((Path(tmp) / "troubleshoot.html").exists())
+            finally:
+                os.chdir(cwd)
+
     def test_cli_json_dump(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out.html"
